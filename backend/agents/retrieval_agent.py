@@ -5,7 +5,7 @@ Responsibilities:
   2. Query Pinecone for top-K similar chunks
   3. Extract seed entities from results + query text
   4. Traverse the NetworkX knowledge graph for related evidence
-  5. Fallback: load demo files directly if Pinecone is empty (no API key demo mode)
+  5. Legacy global queries can fall back to demo files.
 """
 from __future__ import annotations
 
@@ -111,13 +111,12 @@ class RetrievalAgent(BaseAgent):
         matches = pinecone_query(qvec, top_k=5, namespace=session_id)
         self._trace("pinecone_search", f"Retrieved {len(matches)} vector matches")
 
-        # ── Step 3: Demo fallback if Pinecone empty ────────────────────────
-        if not matches:
+        # ── Step 3: Demo fallback for legacy global queries ─────────────────
+        if not matches and session_id is None:
             self._trace("fallback_triggered", "Pinecone empty — loading demo data directly")
             matches = _load_demo_fallback()
             self._trace("demo_fallback", f"Loaded {len(matches)} evidence items from demo files")
 
-        # If session graph is empty too, note it
         if session_id:
             self._trace("session_scope", f"Using session_id={session_id[:8]}... for graph + vectors")
 
