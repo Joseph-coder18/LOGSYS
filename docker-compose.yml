@@ -13,7 +13,11 @@ services:
       # Persist the NetworkX graph and demo files across restarts
       - ./backend/data:/app/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      test:
+        - CMD
+        - python
+        - -c
+        - "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/api/health', timeout=3).close()"
       interval: 15s
       timeout: 5s
       retries: 3
