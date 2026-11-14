@@ -1,0 +1,13 @@
+{"timestamp":"2024-01-15T02:27:00Z","service":"user-db","level":"INFO","message":"Connection pool snapshot: active=18 limit=100"}
+{"timestamp":"2024-01-15T02:29:30Z","service":"user-db","level":"INFO","message":"Connection pool snapshot: active=28 limit=100"}
+{"timestamp":"2024-01-15T02:30:00Z","service":"user-db","level":"WARN","message":"Query latency reached 245.7 ms; active connections=55"}
+{"timestamp":"2024-01-15T02:30:30Z","service":"user-db","level":"WARN","message":"Connection pool utilization reached 88%; acquisition wait increasing"}
+{"timestamp":"2024-01-15T02:30:45Z","service":"user-db","level":"WARN","message":"Connection pool snapshot: active=97 limit=100"}
+{"timestamp":"2024-01-15T02:31:00Z","service":"user-db","level":"ERROR","message":"PoolExhaustedError: connection acquisition failed; active=100 limit=100"}
+{"timestamp":"2024-01-15T02:31:01Z","service":"auth-service","level":"ERROR","message":"DatabaseTimeout: POST /login could not acquire a user-db connection"}
+{"timestamp":"2024-01-15T02:31:02Z","service":"api-gateway","level":"ERROR","message":"POST /login 504; upstream auth-service timed out"}
+{"timestamp":"2024-01-15T02:31:15Z","service":"user-db","level":"WARN","message":"Connection pool still at capacity; active=100 limit=100"}
+{"timestamp":"2024-01-15T02:31:16Z","service":"auth-service","level":"ERROR","message":"DatabaseTimeout: user-db connection acquisition timed out again"}
+{"timestamp":"2024-01-15T02:32:15Z","service":"user-db","level":"INFO","message":"Connection pool snapshot: active=45 limit=100"}
+{"timestamp":"2024-01-15T02:32:45Z","service":"auth-service","level":"INFO","message":"POST /login 200; user-db connection acquired"}
+{"timestamp":"2024-01-15T02:33:00Z","service":"api-gateway","level":"INFO","message":"POST /login 200; upstream auth-service responding"}

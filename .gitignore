@@ -37,3 +37,4 @@ Thumbs.db
 
 # ── Docker ────────────────────────────────────────────────────────────────
 *.log
+!backend/data/demo/demo_app.log
