@@ -1,299 +1,121 @@
-/**
- * LogMind v2 – 3-column ChatGPT-style shell (Phase 4D polished)
- */
-import { useState, useEffect, useCallback } from 'react'
-import LeftSidebar  from './components/LeftSidebar'
-import ChatWindow   from './components/ChatWindow'
-import RightSidebar from './components/RightSidebar'
-import { ToastContainer, addToast } from './components/Toast'
-import './App.css'
-
-let _msgId = 0
-const newId = () => String(++_msgId)
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Activity, FlaskConical, FolderOpen, Menu, Plus, X } from 'lucide-react'
+import Investigation from '@/components/Investigation'
+import { Button } from '@/components/ui/button'
+import { ConfirmDialog } from '@/components/ui/alert-dialog'
+import { Alert, Badge } from '@/components/ui/surfaces'
+import { checkHealth, createSession, deleteSession, listSessions } from '@/services/api'
+import { SAMPLE_ID, sampleIncident } from './sample-incident'
 
 export default function App() {
-  // ── Backend status ─────────────────────────────────────────────────────────
-  const [backendStatus, setBackendStatus] = useState('checking')
+  const [status, setStatus] = useState('checking')
+  const [sessions, setSessions] = useState([])
+  const [selected, setSelected] = useState(SAMPLE_ID)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [pendingDelete, setPendingDelete] = useState(null)
+  const [error, setError] = useState('')
+  const sessionRequest = useRef(0)
+  const connected = status === 'online'
 
-  // ── Sessions ───────────────────────────────────────────────────────────────
-  const [sessions,        setSessions]        = useState([])
-  const [activeSessionId, setActiveSessionId] = useState(null)
-
-  // ── Chat state (per active session) ────────────────────────────────────────
-  const [messages, setMessages] = useState([])
-  const [loading,  setLoading]  = useState(false)
-
-  // ── Right sidebar ──────────────────────────────────────────────────────────
-  const [rightOpen,   setRightOpen]   = useState(false)
-  const [rightTab,    setRightTab]    = useState('evidence')
-  const [rightResult, setRightResult] = useState(null)
-  const [graphData,   setGraphData]   = useState({ nodes: [], edges: [] })
-
-  // ── Left sidebar toggle ────────────────────────────────────────────────────
-  const [leftOpen, setLeftOpen] = useState(true)
-
-  // ── Toasts ─────────────────────────────────────────────────────────────────
-  const [toasts, setToasts] = useState([])
-  const toast = useCallback((type, message) => addToast(setToasts, { type, message }), [])
-
-  // ── Health check ───────────────────────────────────────────────────────────
-  const checkHealth = useCallback(async () => {
-    try {
-      const { checkHealth: ch } = await import('./services/api')
-      const r = await ch()
-      setBackendStatus(r.status === 'ok' ? 'ok' : 'error')
-    } catch {
-      setBackendStatus('error')
-    }
+  const refreshSessions = useCallback(async () => {
+    const request = ++sessionRequest.current
+    const response = await listSessions()
+    if (request === sessionRequest.current) setSessions(response.sessions || [])
   }, [])
 
   useEffect(() => {
-    checkHealth()
-    const t = setInterval(checkHealth, 30_000)
-    return () => clearInterval(t)
-  }, [checkHealth])
-
-  // ── Load session list ──────────────────────────────────────────────────────
-  const refreshSessions = useCallback(async () => {
-    try {
-      const { listSessions } = await import('./services/api')
-      const data = await listSessions()
-      setSessions(data.sessions || [])
-    } catch { /* ignore */ }
-  }, [])
-
-  useEffect(() => { refreshSessions() }, [refreshSessions])
-
-  // ── Select a session (loads chat history + graph) ──────────────────────────
-  const selectSession = useCallback(async (sessionId) => {
-    setActiveSessionId(sessionId)
-    setMessages([])
-    setRightResult(null)
-    setRightOpen(false)
-    setGraphData({ nodes: [], edges: [] })
-    try {
-      const { sessionChat, sessionGraph } = await import('./services/api')
-      const [chatData, gData] = await Promise.all([
-        sessionChat(sessionId).catch(() => ({ history: [] })),
-        sessionGraph(sessionId).catch(() => ({ nodes: [], edges: [] })),
-      ])
-      const msgs = (chatData.history || []).map(entry => ({
-        id:      newId(),
-        role:    entry.role,
-        content: entry.content,
-      }))
-      setMessages(msgs)
-      setGraphData(gData)
-      const lastAssistant = [...msgs].reverse().find(m => m.role === 'assistant')
-      if (lastAssistant) {
-        setRightResult(lastAssistant.content)
-      }
-    } catch (err) {
-      toast('error', `Failed to load session: ${err.message}`)
-    }
-  }, [toast])
-
-  // ── New session ────────────────────────────────────────────────────────────
-  const handleNewSession = useCallback(async () => {
-    try {
-      const { createSession } = await import('./services/api')
-      const d    = new Date()
-      const name = `Session ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ${d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`
-      const sess = await createSession(name)
-      await refreshSessions()
-      selectSession(sess.id)
-      toast('success', `Created session "${sess.name}"`)
-    } catch (err) {
-      toast('error', `Could not create session: ${err.message}`)
-    }
-  }, [refreshSessions, selectSession, toast])
-
-  // ── Delete session ─────────────────────────────────────────────────────────
-  const handleDeleteSession = useCallback(async (sessionId) => {
-    const sess = sessions.find(s => s.id === sessionId)
-    try {
-      const { deleteSession } = await import('./services/api')
-      await deleteSession(sessionId)
-      if (activeSessionId === sessionId) {
-        setActiveSessionId(null)
-        setMessages([])
-        setRightResult(null)
-        setGraphData({ nodes: [], edges: [] })
-        setRightOpen(false)
-      }
-      await refreshSessions()
-      toast('info', `Deleted "${sess?.name || 'session'}"`)
-    } catch (err) {
-      toast('error', `Delete failed: ${err.message}`)
-    }
-  }, [activeSessionId, sessions, refreshSessions, toast])
-
-  // ── After ingest: auto-rename session if unnamed, refresh graph ───────────
-  const handleFilesIngested = useCallback(async (result, firstFileName) => {
-    if (!activeSessionId) return
-    try {
-      const { sessionGraph } = await import('./services/api')
-      const gData = await sessionGraph(activeSessionId)
-      setGraphData(gData)
-      toast('success', `Ingested ${result.files_processed} file(s) · ${result.graph_nodes} graph nodes`)
-    } catch { /* ignore */ }
-    await refreshSessions()
-  }, [activeSessionId, refreshSessions, toast])
-
-  // ── Send a query ───────────────────────────────────────────────────────────
-  const handleSend = useCallback(async (query) => {
-    if (!activeSessionId || loading) return
-
-    const userMsg = { id: newId(), role: 'user', content: query }
-    setMessages(prev => [...prev, userMsg])
-    setLoading(true)
-
-    // Show right sidebar in loading state
-    setRightTab('evidence')
-    setRightOpen(true)
-
-    try {
-      const { sessionQuery } = await import('./services/api')
-      const result = await sessionQuery(activeSessionId, query)
-
-      const assistantMsg = { id: newId(), role: 'assistant', content: result }
-      setMessages(prev => [...prev, assistantMsg])
-      setRightResult(result)
-
-      // Refresh graph after query
+    let active = true
+    async function refresh() {
       try {
-        const { sessionGraph } = await import('./services/api')
-        const gData = await sessionGraph(activeSessionId)
-        setGraphData(gData)
-      } catch { /* ignore */ }
-
-    } catch (err) {
-      const detail = err.response?.data?.detail || err.message || 'Query failed'
-      toast('error', `Analysis failed: ${detail}`)
-      setMessages(prev => [...prev, {
-        id:      newId(),
-        role:    'assistant',
-        content: {
-          answer:            `Analysis error: ${detail}`,
-          root_cause:        '',
-          confidence:        'low',
-          evidence:          [],
-          agent_trace:       [{ agent: 'orchestrator', action: 'error', result: detail }],
-          timeline:          [],
-          affected_services: [],
-          recommendations:   [],
-        },
-      }])
-    } finally {
-      setLoading(false)
+        const result = await checkHealth()
+        if (!active) return
+        setStatus(result.status === 'ok' ? 'online' : 'offline')
+        if (result.status === 'ok') await refreshSessions().catch(() => {
+          if (active) setError('Could not load live incidents.')
+        })
+      } catch {
+        if (active) setStatus('offline')
+      }
     }
-  }, [activeSessionId, loading, toast])
+    refresh()
+    const interval = setInterval(refresh, 30_000)
+    return () => { active = false; clearInterval(interval) }
+  }, [refreshSessions])
 
-  // ── View a right sidebar tab ───────────────────────────────────────────────
-  const handleViewTab = useCallback((tab) => {
-    setRightTab(tab)
-    setRightOpen(true)
-  }, [])
+  function select(id) {
+    setSelected(id)
+    setSidebarOpen(false)
+    setError('')
+  }
 
-  // ── Derived ────────────────────────────────────────────────────────────────
-  const activeSession = sessions.find(s => s.id === activeSessionId) || null
-  const backendOk     = backendStatus === 'ok'
+  async function newIncident() {
+    setCreating(true)
+    setError('')
+    try {
+      const incident = await createSession()
+      ++sessionRequest.current
+      setSessions(previous => [incident, ...previous.filter(item => item.id !== incident.id)])
+      select(incident.id)
+    } catch {
+      setError('Could not create an incident. Check that the backend is running.')
+    } finally {
+      setCreating(false)
+    }
+  }
 
-  const statusDot = {
-    checking: { label: 'Connecting…',    cls: 'status-checking' },
-    ok:       { label: 'Backend Live',   cls: 'status-ok'       },
-    error:    { label: 'Backend Offline', cls: 'status-error'   },
-  }[backendStatus]
+  async function removeIncident() {
+    if (!pendingDelete) return
+    setDeleting(true)
+    try {
+      await deleteSession(pendingDelete.id)
+      ++sessionRequest.current
+      setSessions(previous => previous.filter(item => item.id !== pendingDelete.id))
+      setSelected(previous => previous === pendingDelete.id ? SAMPLE_ID : previous)
+      setPendingDelete(null)
+    } catch {
+      setPendingDelete(null)
+      setError('Could not delete the incident.')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  const incident = selected === SAMPLE_ID ? sampleIncident : sessions.find(item => item.id === selected)
 
   return (
-    <div className="app-shell" id="app-root">
-
-      {/* ── Header ── */}
-      <header className="app-header" role="banner">
-        <div className="header-left">
-          <button
-            className="header-toggle-btn"
-            onClick={() => setLeftOpen(o => !o)}
-            title={leftOpen ? 'Hide sessions' : 'Show sessions'}
-            aria-label="Toggle sessions panel"
-            id="btn-toggle-left"
-          >☰</button>
-          <span className="brand-icon">🧠</span>
-          <span className="brand-name">LogMind</span>
-          <span className="brand-tag">Incident Intelligence</span>
+    <div className="console">
+      <a className="skip-link" href="#workspace">Skip to investigation</a>
+      <header className="console-top">
+        <div className="top-brand">
+          <Button className="hidden max-[700px]:inline-flex" variant="ghost" size="icon" onClick={() => setSidebarOpen(open => !open)} aria-label={sidebarOpen ? 'Hide incidents' : 'Show incidents'} aria-expanded={sidebarOpen} aria-controls="incident-nav">{sidebarOpen ? <X /> : <Menu />}</Button>
+          <span className="brand"><span className="brand-mark"><Activity size={20} /></span>LogMind</span>
         </div>
-
-        <div className="header-center">
-          {activeSession && (
-            <span className="header-session-label" title={activeSession.name}>
-              {activeSession.name}
-            </span>
-          )}
-        </div>
-
-        <div className="header-right">
-          <div className={`status-pill ${statusDot.cls}`}>
-            <span className="status-dot" />
-            {statusDot.label}
-          </div>
-          {(rightResult || loading) && (
-            <button
-              className={`header-toggle-btn${rightOpen ? ' header-toggle-active' : ''}`}
-              onClick={() => setRightOpen(o => !o)}
-              title={rightOpen ? 'Hide analysis panel' : 'Show analysis panel'}
-              id="btn-toggle-right"
-            >⊞</button>
-          )}
-        </div>
+        <Badge role="status" tone={connected ? 'positive' : 'neutral'}><span className="status-dot" />{status === 'checking' ? 'Connecting' : connected ? 'Backend connected' : 'Backend offline'}</Badge>
       </header>
-
-      {/* ── Body ── */}
-      <div className="app-body">
-
-        {/* Left: sessions + upload */}
-        {leftOpen && (
-          <LeftSidebar
-            sessions={sessions}
-            activeSessionId={activeSessionId}
-            onSelectSession={selectSession}
-            onNewSession={handleNewSession}
-            onDeleteSession={handleDeleteSession}
-            onFilesIngested={handleFilesIngested}
-            backendOk={backendOk}
-          />
-        )}
-
-        {/* Center: chat */}
-        <main className="app-center" role="main">
-          <ChatWindow
-            messages={messages}
-            loading={loading}
-            activeSession={activeSession}
-            onSend={handleSend}
-            onViewTab={handleViewTab}
-            disabled={!backendOk || !activeSessionId}
-          />
+      <div className="console-body">
+        <nav id="incident-nav" aria-label="Incidents" className={`console-nav${sidebarOpen ? ' is-open' : ''}`}>
+          <div className="nav-heading"><h2>Incidents</h2></div>
+          <Button className="w-full justify-start" onClick={newIncident} disabled={!connected || creating}><Plus /> {creating ? 'Creating…' : 'New incident'}</Button>
+          <div className="nav-list">
+            {sessions.map(item => (
+              <Button key={item.id} variant="ghost" className="nav-item justify-start" onClick={() => select(item.id)} aria-current={selected === item.id ? 'true' : undefined}><FolderOpen /><span>{item.name}</span></Button>
+            ))}
+          </div>
+          <div className="sample-nav">
+            <h2>Preview</h2>
+            <Button variant="ghost" className="nav-item justify-start" onClick={() => select(SAMPLE_ID)} aria-current={selected === SAMPLE_ID ? 'true' : undefined}><FlaskConical /><span>Sample incident</span></Button>
+          </div>
+        </nav>
+        <main id="workspace" className="workspace">
+          {error && <Alert className="mb-4">{error}</Alert>}
+          {incident ? <Investigation key={incident.id} incident={incident} connected={connected} onSessionsChange={refreshSessions} onDelete={() => setPendingDelete(incident)} /> : (
+            <div className="panel-empty">This incident is unavailable. Choose another incident or open the sample.</div>
+          )}
         </main>
-
-        {/* Right: analysis tabs */}
-        {(rightOpen || loading) && (
-          <RightSidebar
-            open={rightOpen || loading}
-            activeTab={rightTab}
-            onTabChange={setRightTab}
-            result={rightResult}
-            graphData={graphData}
-            onClose={() => setRightOpen(false)}
-            loading={loading}
-          />
-        )}
       </div>
-
-      {/* ── Toasts ── */}
-      <ToastContainer
-        toasts={toasts}
-        onDismiss={id => setToasts(prev => prev.filter(t => t.id !== id))}
-      />
+      <ConfirmDialog open={!!pendingDelete} onOpenChange={open => { if (!open && !deleting) setPendingDelete(null) }} title="Delete this incident?" description={`This removes ${pendingDelete?.name || 'the incident'} and its investigation history.`} onConfirm={removeIncident} busy={deleting} />
     </div>
   )
 }

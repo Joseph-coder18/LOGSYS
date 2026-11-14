@@ -12,7 +12,7 @@ const BASE_URL = import.meta.env.VITE_BACKEND_URL
 const client = axios.create({ baseURL: BASE_URL, timeout: 120_000 })
 
 // ── Health ────────────────────────────────────────────────────────────────────
-export const checkHealth = async () => (await client.get('/health')).data
+export const checkHealth = async () => (await client.get('/health', { timeout: 5000 })).data
 
 // ── Sessions ──────────────────────────────────────────────────────────────────
 export const createSession  = async (name) => (await client.post('/sessions', { name })).data
