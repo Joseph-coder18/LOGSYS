@@ -60,6 +60,7 @@ function SelectedNode({ node, role, edges, labels, impact }) {
 export default function InvestigationGraph({ graph, referenceNode, focusSelection, sessionId, evidenceRevision, onObservation, suspectedOrigin, affectedServices }) {
   const frame = useRef(null)
   const force = useRef(null)
+  const fittedLayout = useRef(null)
   const [width, setWidth] = useState(0)
   const [scope, setScope] = useState(null)
   const [layoutVersion, setLayoutVersion] = useState(0)
@@ -140,6 +141,12 @@ export default function InvestigationGraph({ graph, referenceNode, focusSelectio
     return () => cancelAnimationFrame(frameId)
   }, [fit, data])
 
+  function fitAfterInitialLayout() {
+    if (fittedLayout.current === data) return
+    fittedLayout.current = data
+    fit()
+  }
+
   useEffect(() => {
     if (!focusSelection) return
     const target = document.getElementById('graph-reference')
@@ -204,7 +211,8 @@ export default function InvestigationGraph({ graph, referenceNode, focusSelectio
             warmupTicks={isImpact ? 0 : 36}
             cooldownTicks={isImpact ? 1 : 75}
             autoPauseRedraw={!pulse}
-            onEngineStop={fit}
+            onEngineStop={fitAfterInitialLayout}
+            onNodeDrag={() => { fittedLayout.current = data }}
             onNodeClick={node => setSelectedId(node.id)}
             onNodeHover={node => setHoveredId(node?.id ?? null)}
             nodeCanvasObject={(node, context, scale) => drawGraphNode(node, context, scale, {
