@@ -46,6 +46,7 @@ export const sessionObservation = async (id, observationId) =>
   (await client.get(`/sessions/${id}/observations/${observationId}`)).data
 export const sessionImpact = async (id, service) =>
   (await client.get(`/sessions/${id}/impact`, { params: { service } })).data
+export const verifyIncident = async id => (await client.get(`/sessions/${id}/verification`)).data
 export const sessionGraph   = async (id) => (await client.get(`/sessions/${id}/graph`)).data
 
 // ── Session — Chat history ────────────────────────────────────────────────────

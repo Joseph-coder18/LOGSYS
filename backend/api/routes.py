@@ -31,7 +31,7 @@ from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
-from models import BaseChunk, IngestResult, RCAOutput, Session, CreateSessionRequest, Observation, ObservationFilter, ObservationPage
+from models import BaseChunk, IngestResult, RCAOutput, Session, CreateSessionRequest, Observation, ObservationFilter, ObservationPage, VerifiedRCA
 
 logger = logging.getLogger("logmind.api")
 
@@ -305,6 +305,16 @@ async def session_impact(session_id: str, service: str = Query(min_length=1, max
     if get_session(session_id) is None:
         raise HTTPException(status_code=404, detail="Session not found.")
     return potential_impact(_session_dir(session_id), service)
+
+
+@router.get("/sessions/{session_id}/verification", response_model=VerifiedRCA, tags=["Sessions"])
+async def session_verification(session_id: str):
+    from services.session_store import _session_dir, get_session
+    from services.verification import verify_incident
+
+    if get_session(session_id) is None:
+        raise HTTPException(status_code=404, detail="Session not found.")
+    return verify_incident(_session_dir(session_id))
 
 
 # ── Session — Query ───────────────────────────────────────────────────────────

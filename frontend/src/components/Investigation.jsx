@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Alert, Badge, Card, Skeleton } from '@/components/ui/surfaces'
 import { InfoTooltip } from '@/components/ui/tooltip'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { sessionChat, sessionGraph, sessionIngest, sessionObservation, sessionObservations, sessionQuery } from '@/services/api'
+import { sessionChat, sessionGraph, sessionIngest, sessionObservation, sessionObservations, sessionQuery, verifyIncident } from '@/services/api'
 import { SAMPLE_ID, sampleGraph, samplePrompts, sampleResult } from '@/sample-incident'
 import InvestigationGraph from './InvestigationGraph'
 import IncidentSources from './IncidentSources'
@@ -22,7 +22,7 @@ const tabs = [
   { value: 'trace', label: 'Agent trace', icon: ListChecks },
   { value: 'chat', label: 'Chat', icon: MessagesSquare },
 ]
-const modalities = { log: 'Log', metrics: 'Metrics', image: 'Screenshot' }
+const modalities = { change: 'Change', log: 'Log', metrics: 'Metrics', image: 'Screenshot' }
 
 function Timeline({ events, selectedIndex, navigable = false }) {
   if (!events.length) return <p className="panel-empty">Timeline events appear after an investigation.</p>
@@ -41,7 +41,7 @@ function Timeline({ events, selectedIndex, navigable = false }) {
   )
 }
 
-function Evidence({ items, sample, selectedIndex }) {
+function Evidence({ items, sample, selectedIndex, onObservation }) {
   if (!items.length) return <p className="panel-empty">No evidence was returned for this incident.</p>
   return (
     <div className="evidence-list">
@@ -49,14 +49,16 @@ function Evidence({ items, sample, selectedIndex }) {
         <Card key={index} id={`evidence-row-${index}`} tabIndex={-1} className={`evidence-card${selectedIndex === index ? " evidence-selected" : ""}`}>
           <div className="evidence-head">
             <Badge tone={modalities[item.type] ? item.type : 'neutral'}>{modalities[item.type] || item.type || 'Source'}</Badge>
-            <span className="source-name">{item.source}</span>
-            {Number.isFinite(item.score) && (
+            <span className="source-name">{item.source}{item.source_position && ` · ${item.type === 'log' ? 'line' : 'record'} ${item.source_position}`}</span>
+            {!item.observation_id && Number.isFinite(item.score) && (
               <InfoTooltip className="evidence-score" label={<><span className="info-label">Relevance {item.score.toFixed(2)}</span><Info size={12} aria-hidden="true" /></>}>
                 {sample ? 'Example retrieval score for this preloaded excerpt.' : 'Retrieval score for how closely this excerpt matches the query.'} Causal confidence is shown separately.
               </InfoTooltip>
             )}
           </div>
           {item.snippet && <pre>{item.snippet}</pre>}
+          {item.why && <p className="mt-2 text-xs text-muted-foreground">{item.why}</p>}
+          {item.observation_id && <Button className="mt-2" size="sm" variant="outline" onClick={() => onObservation(item.observation_id, index)}><ArrowUpRight /> Open in timeline</Button>}
         </Card>
       ))}
     </div>
@@ -73,6 +75,8 @@ export default function Investigation({ incident, connected, onSessionsChange, o
   const { observations, next_offset: nextOffset, counts, services: timelineServices } = timelinePage
   const timelineRequest = useRef(0)
   const [messages, setMessages] = useState([])
+  const [verification, setVerification] = useState(null)
+  const [verifying, setVerifying] = useState(false)
   const [result, setResult] = useState(sample ? sampleResult : null)
   const [graph, setGraph] = useState(sample ? sampleGraph : emptyGraph)
   const [question, setQuestion] = useState('')
@@ -81,6 +85,7 @@ export default function Investigation({ incident, connected, onSessionsChange, o
   const [error, setError] = useState('')
   const id = incident.id
   const previewTimer = useRef(null)
+  const verificationRequest = useRef(0)
   const referenceRequest = useRef(0)
 
   useEffect(() => () => clearTimeout(previewTimer.current), [])
@@ -110,6 +115,9 @@ export default function Investigation({ incident, connected, onSessionsChange, o
   async function upload(files) {
     const response = await sessionIngest(id, files)
     if (response.files_processed) {
+      ++verificationRequest.current
+      setVerification(null)
+      setVerifying(false)
       const updates = await Promise.allSettled([
         sessionGraph(id).then(setGraph),
         refreshTimeline(allEvents).then(page => {
@@ -122,6 +130,23 @@ export default function Investigation({ incident, connected, onSessionsChange, o
       }
     }
     return response
+  }
+
+  async function runVerification() {
+    const request = ++verificationRequest.current
+    setVerifying(true)
+    setError('')
+    try {
+      const diagnosis = await verifyIncident(id)
+      if (request === verificationRequest.current) {
+        setVerification(diagnosis)
+        changeTab('evidence')
+      }
+    } catch {
+      if (request === verificationRequest.current) setError('Could not verify the incident.')
+    } finally {
+      if (request === verificationRequest.current) setVerifying(false)
+    }
   }
 
   async function refreshTimeline(nextFilters, offset = 0) {
@@ -163,12 +188,12 @@ export default function Investigation({ incident, connected, onSessionsChange, o
     setTab(target.view)
   }
 
-  async function openObservation(observationId, node) {
+  async function openObservation(observationId, node, evidenceIndex) {
     const request = ++referenceRequest.current
     setError('')
     try {
       const observation = await sessionObservation(id, observationId)
-      if (request === referenceRequest.current) openReference({ view: 'timeline', observation, node })
+      if (request === referenceRequest.current) openReference({ view: 'timeline', observation, node, evidenceIndex })
     } catch {
       if (request === referenceRequest.current) setError('Could not open this observation.')
     }
@@ -217,10 +242,12 @@ export default function Investigation({ incident, connected, onSessionsChange, o
 
   const referencedObservation = reference?.observation
   const outsidePage = referencedObservation && !observations.some(event => event.id === referencedObservation.id)
-  const evidence = result?.evidence || []
-  const timeline = result?.timeline || []
-  const services = result?.affected_services || []
-  const trace = result?.agent_trace || []
+  const diagnosis = verification || result
+  const evidence = diagnosis?.evidence || []
+  const timeline = diagnosis?.timeline || []
+  const services = diagnosis?.affected_services || []
+  const trace = diagnosis?.agent_trace || []
+  const decisions = { supported: 'Supported by evidence', ambiguous: 'Ambiguous', insufficient_evidence: 'Insufficient evidence' }
 
   return (
     <>
@@ -232,7 +259,8 @@ export default function Investigation({ incident, connected, onSessionsChange, o
         </div>
         {sample ? <Badge tone="warning"><ScanLine size={13} /> Sample data</Badge> : (
           <div className="heading-actions">
-            <Button variant="outline" onClick={() => setTab('chat')}><MessagesSquare /> Ask a question</Button>
+            <Button disabled={!connected || loading || verifying || running} onClick={runVerification}><ScanLine /> {verifying ? 'Verifying…' : 'Verify root cause'}</Button>
+            <Button variant="outline" onClick={() => changeTab('chat')}><MessagesSquare /> Ask a question</Button>
             <Button variant="ghost" disabled={!connected} onClick={onDelete}>Delete</Button>
           </div>
         )}
@@ -243,7 +271,8 @@ export default function Investigation({ incident, connected, onSessionsChange, o
           <Card className="diagnosis">
             <div className="diagnosis-top">
               <h2><ScanLine size={17} /> Root cause analysis</h2>
-              {result?.root_cause && result?.confidence && (
+              {verification && <Badge tone={verification.decision === 'supported' ? 'positive' : 'warning'}>{decisions[verification.decision]}</Badge>}
+              {!verification && result?.root_cause && result?.confidence && (
                 <InfoTooltip label={<Badge tone={result.confidence === 'high' ? 'positive' : 'neutral'}><span className="info-label">{result.confidence} confidence</span><Info size={12} aria-hidden="true" /></Badge>}>
                   {sample ? 'Example confidence label for this sample diagnosis.' : 'Qualitative confidence reported by the analysis. Treat it as an estimate when reviewing the evidence.'}
                 </InfoTooltip>
@@ -251,8 +280,17 @@ export default function Investigation({ incident, connected, onSessionsChange, o
             </div>
             {loading ? <div role="status" aria-label="Loading incident"><Skeleton className="mb-3 h-6 w-2/3" /><Skeleton className="w-3/4" /></div> : (
               <>
-                <h3>{result?.root_cause || 'No diagnosis yet'}</h3>
-                <p>{result?.summary || result?.answer || 'Upload incident telemetry, then ask a question to start the analysis.'}</p>
+                <h3>{diagnosis?.root_cause || 'No diagnosis yet'}</h3>
+                <p>{diagnosis?.summary || diagnosis?.answer || 'Upload incident telemetry, then verify the root cause or ask a question.'}</p>
+                {verification && evidence.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {evidence.map((item, index) => (
+                      <Button key={item.observation_id} size="sm" variant="ghost" onClick={() => openReference({ view: 'evidence', index, fromDiagnosis: true })}>
+                        <FileText /> {item.source}:{item.source_position}
+                      </Button>
+                    ))}
+                  </div>
+                )}
               </>
             )}
             {running && !sample && <div className="mt-3 text-xs text-primary" role="status">Analyzing incident evidence…</div>}
@@ -266,12 +304,16 @@ export default function Investigation({ incident, connected, onSessionsChange, o
                 </TabsTrigger>
               ))}
             </TabsList>
-            {reference && !reference.fromTimeline && tab === reference.view && (
-              <Button className="mt-3" variant="outline" size="sm" onClick={() => referencedObservation ? openReference({ view: 'graph', node: reference.node, fromTimeline: true }) : changeTab('chat')}>
-                {referencedObservation ? <><GitFork /> Back to graph</> : <><MessagesSquare /> Back to chat</>}
+            {reference && !reference.fromTimeline && !reference.fromDiagnosis && tab === reference.view && (
+              <Button className="mt-3" variant="outline" size="sm" onClick={() => {
+                if (!referencedObservation) changeTab('chat')
+                else if (reference.evidenceIndex !== undefined) openReference({ view: 'evidence', index: reference.evidenceIndex, fromDiagnosis: true })
+                else openReference({ view: 'graph', node: reference.node, fromTimeline: true })
+              }}>
+                {reference.evidenceIndex !== undefined ? <><FileText /> Back to evidence</> : referencedObservation ? <><GitFork /> Back to graph</> : <><MessagesSquare /> Back to chat</>}
               </Button>
             )}
-            <TabsContent value="evidence"><Evidence items={evidence} sample={sample} selectedIndex={reference?.view === 'evidence' ? reference.index : null} /></TabsContent>
+            <TabsContent value="evidence"><Evidence items={evidence} sample={sample} selectedIndex={reference?.view === 'evidence' ? reference.index : null} onObservation={(observationId, index) => openObservation(observationId, undefined, index)} /></TabsContent>
             <TabsContent value="timeline">
               {outsidePage && (
                 <Card className="side-panel mb-3">
@@ -299,7 +341,7 @@ export default function Investigation({ incident, connected, onSessionsChange, o
               )}
               {!sample && !counts.all && !timelineServices.length && !timeline.length && <p className="panel-empty">Upload logs or metrics to see their events here.</p>}
             </TabsContent>
-            <TabsContent value="graph"><InvestigationGraph graph={graph} referenceNode={reference?.view === 'graph' ? reference.node : null} sessionId={sample ? null : id} onObservation={openObservation} /></TabsContent>
+            <TabsContent value="graph"><InvestigationGraph graph={graph} referenceNode={reference?.view === 'graph' ? reference.node : null} sessionId={sample ? null : id} onObservation={openObservation} suspectedOrigin={verification?.suspected_origin} affectedServices={verification?.affected_services} /></TabsContent>
             <TabsContent value="trace">
               {trace.length ? <ol className="trace-list">{trace.map((step, index) => (
                 <li key={index}><Card className="side-panel"><Badge>{step.agent}</Badge><h3>{step.action}</h3><p>{typeof step.result === 'string' ? step.result : JSON.stringify(step.result)}</p></Card></li>
@@ -335,8 +377,8 @@ export default function Investigation({ incident, connected, onSessionsChange, o
             </Card>
           )}
           <IncidentSources files={incident.files || []} sample={sample} disabled={!connected || loading || running} onUpload={upload} />
-          {!!result?.recommendations?.length && (
-            <Card className="side-panel"><div className="side-panel-title"><h2>Recommended actions</h2></div><ul className="actions-list">{result.recommendations.map((item, index) => <li key={index}>{item}</li>)}</ul></Card>
+          {!!diagnosis?.recommendations?.length && (
+            <Card className="side-panel"><div className="side-panel-title"><h2>Recommended actions</h2></div><ul className="actions-list">{diagnosis.recommendations.map((item, index) => <li key={index}>{item}</li>)}</ul></Card>
           )}
         </aside>
       </div>

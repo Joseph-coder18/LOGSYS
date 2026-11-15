@@ -194,6 +194,56 @@ class LiveTimelineTests(IsolatedAsyncioTestCase):
         self.assertEqual(empty["counts"]["changes"], 0)
         self.assertEqual((await self.client.get(endpoint, params={"category": "invalid"})).status_code, 422)
 
+    async def test_rule_based_verification_uses_exact_uploaded_records(self):
+        demo = Path(__file__).resolve().parents[1] / "data" / "demo"
+        change = demo / "context/demo_changes.json"
+        topology = demo / "context/demo_dependencies.json"
+        logs = demo / "demo_app.log"
+        metrics = demo / "demo_metrics.json"
+        files = [(path.name, path.read_bytes()) for path in (logs, metrics, topology)]
+
+        await self.upload(*files)
+        endpoint = f"{self.url}/verification"
+        missing = (await self.client.get(endpoint)).json()
+        self.assertEqual(missing["decision"], "insufficient_evidence")
+        self.assertIsNone(missing["suspected_origin"])
+
+        await self.upload((change.name, change.read_bytes()))
+        result = (await self.client.get(endpoint)).json()
+        self.assertEqual(result["decision"], "supported")
+        self.assertEqual(result["suspected_origin"], "user-db")
+        self.assertEqual(result["affected_services"], ["user-db", "auth-service", "api-gateway"])
+        self.assertEqual(len(result["evidence"]), 5)
+        for card in result["evidence"]:
+            observation = await self.client.get(f'{self.url}/observations/{card["observation_id"]}')
+            self.assertEqual(observation.status_code, 200)
+            self.assertEqual(observation.json()["source_position"], card["source_position"])
+            self.assertEqual(observation.json()["source_file"], card["source"])
+
+        # An earlier CPU spike leaves a competing hypothesis open.
+        alternative = json.loads(metrics.read_text())
+        alternative["metrics"][4]["cpu_percent"] = 95
+        await self.upload(("early_cpu.json", json.dumps(alternative).encode()))
+        competing = (await self.client.get(endpoint)).json()
+        self.assertEqual(competing["decision"], "ambiguous")
+        self.assertIsNone(competing["suspected_origin"])
+
+    async def test_verification_requires_declared_and_temporally_ordered_impact(self):
+        demo = Path(__file__).resolve().parents[1] / "data" / "demo"
+        log = demo / "demo_app.log"
+        metrics = demo / "demo_metrics.json"
+        change = demo / "context/demo_changes.json"
+        topology = demo / "context/demo_dependencies.json"
+
+        early_logs = log.read_bytes().replace(b"02:31:01Z", b"02:29:45Z").replace(b"02:31:16Z", b"02:29:46Z")
+        await self.upload((log.name, early_logs), (metrics.name, metrics.read_bytes()), (change.name, change.read_bytes()))
+        endpoint = f"{self.url}/verification"
+        self.assertEqual((await self.client.get(endpoint)).json()["decision"], "insufficient_evidence")
+        await self.upload((topology.name, topology.read_bytes()))
+        result = (await self.client.get(endpoint)).json()
+        self.assertEqual(result["decision"], "insufficient_evidence")
+        self.assertFalse(any(card["type"] == "log" for card in result["evidence"]))
+
     async def test_metric_spike_uses_prior_rows_and_retains_source_record(self):
         path = self.root / "metrics.csv"
         path.write_text(

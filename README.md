@@ -118,6 +118,12 @@ Create a live incident and upload the demo logs and metrics from `backend/data/d
 
 Use the same service names in the manifest, change records, and telemetry. In Graph, blue arrows point from callers to their dependencies. Select `user-db` to see **Potential impact**, which follows the declared edges back to callers. Select an observation to open its source in the timeline.
 
+## Verify the pool-limit scenario
+
+In a fresh live incident, upload the demo logs, metrics, changes, and dependency manifest, then select **Verify root cause**. The check uses the change record's `pool_limit_change` with integer `before` and `after` values, the service's pool metrics, and its callers' error logs. Open a citation in the diagnosis, then use **Open in timeline** to inspect the exact record.
+
+The demo shows the limit falling from 100 to 20, the pool reaching 20 connections as latency rises, and the declared callers reporting errors afterward. To try an unresolved case, upload the same files into a second incident with `demo_changes.json` omitted. Verification is local and requires no provider keys.
+
 ---
 
 ## Environment Variables

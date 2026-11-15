@@ -157,3 +157,24 @@ def recent_signals(session_dir: Path, services: list[str]) -> dict[str, list[dic
                 "source_file": source_file, "source_position": source_position,
             })
     return signals
+
+
+def load_verification_observations(session_dir: Path) -> list[Observation]:
+    """Read dated changes, metrics, and error logs in chronological order."""
+    path = database_path(session_dir)
+    if not path.exists():
+        return []
+    with closing(sqlite3.connect(path)) as db:
+        if not _has_observations(db):
+            return []
+        rows = db.execute(
+            f"""
+            SELECT payload FROM observations
+            WHERE timestamp IS NOT NULL AND {_SERVICE} IS NOT NULL
+              AND ({_TIMELINE_FILTERS["changes"]}
+                   OR json_extract(payload, '$.modality') = 'metrics'
+                   OR {_TIMELINE_FILTERS["errors"]})
+            ORDER BY timestamp, id
+            """
+        )
+        return [Observation.model_validate_json(row[0]) for row in rows]

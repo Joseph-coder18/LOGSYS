@@ -5,7 +5,7 @@ import { Badge, Skeleton } from '@/components/ui/surfaces'
 const ForceGraph = lazy(() => import('react-force-graph-2d'))
 const colors = { service: '#98b9ff', database: '#f8ca81', file: '#bfc0ff', error: '#ffa5ac' }
 
-export default function InvestigationGraph({ graph, referenceNode, sessionId, onObservation }) {
+export default function InvestigationGraph({ graph, referenceNode, sessionId, onObservation, suspectedOrigin, affectedServices }) {
   const frame = useRef(null)
   const [width, setWidth] = useState(0)
   const [selectedId, setSelectedId] = useState(referenceNode)
@@ -22,6 +22,13 @@ export default function InvestigationGraph({ graph, referenceNode, sessionId, on
   const connectionCount = hovered
     ? graph.edges.filter(edge => edge.source === hovered.id || edge.target === hovered.id).length
     : 0
+
+  function incidentRole(node) {
+    const service = node.service || node.id
+    if (!['service', 'database'].includes(node.type)) return null
+    if (service === suspectedOrigin) return 'origin'
+    return affectedServices?.includes(service) ? 'affected' : null
+  }
 
   useEffect(() => {
     if (!frame.current) return
@@ -52,7 +59,8 @@ export default function InvestigationGraph({ graph, referenceNode, sessionId, on
                 const radius = hoveredId === node.id ? 7 : 5
                 context.beginPath()
                 context.arc(node.x, node.y, radius, 0, 2 * Math.PI)
-                context.fillStyle = colors[node.type] || '#a3b5b1'
+                const role = incidentRole(node)
+                context.fillStyle = role === 'origin' ? '#ff9ca7' : role === 'affected' ? '#f8ca81' : colors[node.type] || '#a3b5b1'
                 context.fill()
                 if (selectedId === node.id) {
                   context.strokeStyle = '#fff'
@@ -71,6 +79,7 @@ export default function InvestigationGraph({ graph, referenceNode, sessionId, on
       <p className="graph-inspection">
         {hovered ? <><strong>{hovered.service || hovered.id}</strong> · {hovered.type || 'entity'} · {connectionCount} {connectionCount === 1 ? 'connection' : 'connections'}</> : 'Hover over a node to see its type and connections. Select it for details.'}
       </p>
+      {suspectedOrigin && <div className="flex flex-wrap gap-2"><Badge tone="error">Suspected origin</Badge><Badge tone="warning">Observed downstream impact</Badge></div>}
       <details className="graph-list">
         <summary>Inspect graph nodes</summary>
         <div className="flex flex-wrap gap-2 pt-3">
@@ -84,6 +93,8 @@ export default function InvestigationGraph({ graph, referenceNode, sessionId, on
       {selected && (
         <div className="graph-selection reference-target" id="graph-reference" tabIndex={-1}>
           <strong>{selected.service || selected.id}</strong> <Badge>{selected.type || 'entity'}</Badge>
+          {incidentRole(selected) === 'origin' && <Badge tone="error">Suspected origin</Badge>}
+          {incidentRole(selected) === 'affected' && <Badge tone="warning">Observed downstream impact</Badge>}
           <ul>
             {graph.edges.filter(edge => edge.source === selected.id || edge.target === selected.id).map((edge, index) => (
               <li key={index}>

@@ -5,7 +5,11 @@
       "timestamp": "2024-01-15T02:29:15Z",
       "service": "user-db",
       "type": "config_change",
-      "summary": "Updated database connection acquisition logging."
+      "summary": "Reduced the database connection pool limit from 100 to 20.",
+      "pool_limit_change": {
+        "before": 100,
+        "after": 20
+      }
     }
   ]
 }

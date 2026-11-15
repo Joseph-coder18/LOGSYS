@@ -35,6 +35,11 @@ class IngestResult(BaseModel):
     indexing_status: Literal["skipped", "complete", "partial", "failed"] = "skipped"
 
 
+class PoolLimitChange(BaseModel):
+    before: int = Field(gt=0, strict=True)
+    after: int = Field(gt=0, strict=True)
+
+
 class Observation(BaseModel):
     id: str = ""
     modality: Literal["log", "metrics", "change"]
@@ -47,6 +52,7 @@ class Observation(BaseModel):
     excerpt: str
     severity: str | None = None
     change_type: Literal["deployment", "restart", "config_change"] | None = None
+    pool_limit_change: PoolLimitChange | None = None
     anomalies: list[str] = Field(default_factory=list)
     metric_values: dict[str, float] = Field(default_factory=dict)
     anomaly_fields: list[str] = Field(default_factory=list)
@@ -74,6 +80,9 @@ class EvidenceItem(BaseModel):
     source: str            # filename
     snippet: str
     score: float = 0.0
+    observation_id: str | None = None
+    source_position: int | None = None
+    why: str | None = None
 
 
 class RCAOutput(BaseModel):
@@ -86,6 +95,11 @@ class RCAOutput(BaseModel):
     evidence: list[EvidenceItem] = Field(default_factory=list)
     agent_trace: list[dict[str, Any]] = Field(default_factory=list)
     answer: str = ""
+
+
+class VerifiedRCA(RCAOutput):
+    decision: Literal["supported", "ambiguous", "insufficient_evidence"]
+    suspected_origin: str | None = None
 
 
 # ── Session models (Phase 4A) ─────────────────────────────────────────────────

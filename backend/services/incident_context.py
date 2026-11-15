@@ -8,7 +8,7 @@ from typing import Annotated, Literal
 import networkx as nx
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-from models import Observation
+from models import Observation, PoolLimitChange
 from services.observations import database_path, normalize_timestamp, recent_signals
 
 ServiceName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
@@ -22,6 +22,7 @@ class ChangeEvent(BaseModel):
     timestamp: str
     type: Literal["deployment", "restart", "config_change"]
     summary: Description
+    pool_limit_change: PoolLimitChange | None = None
 
 
 class ChangeFile(BaseModel):
@@ -60,6 +61,7 @@ def parse_changes(document: dict, filename: str) -> list[Observation]:
             timestamp=utc,
             original_timestamp=event.timestamp,
             change_type=event.type,
+            pool_limit_change=event.pool_limit_change,
             summary=event.summary,
             excerpt=json.dumps(document["events"][position - 1], ensure_ascii=False),
         ))
