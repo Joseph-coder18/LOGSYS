@@ -15,6 +15,8 @@
   --color-destructive: #9f303e;
   --color-success: #82dcb4;
   --color-log: #bfc0ff;
+  --color-change: #d7b8ff;
+  --color-error: #ff9ca7;
   --color-metrics: #8dd9ec;
   --color-image: #e2b6f5;
 }

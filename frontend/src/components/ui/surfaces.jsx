@@ -10,6 +10,8 @@ const badgeVariants = cva('inline-flex w-fit items-center gap-1.5 rounded-[4px] 
       metrics: 'border-metrics/30 bg-metrics/10 text-metrics',
       image: 'border-image/30 bg-image/10 text-image',
       warning: 'border-warning/30 bg-warning/10 text-warning',
+      change: 'border-change/30 bg-change/10 text-change',
+      error: 'border-error/30 bg-error/10 text-error',
     },
   },
   defaultVariants: { tone: 'neutral' },

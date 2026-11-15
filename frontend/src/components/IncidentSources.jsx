@@ -32,7 +32,13 @@ export default function IncidentSources({ files, sample, disabled, onUpload }) {
     try {
       const result = await onUpload(staged)
       setFeedback(result)
-      if (result.status === 'success') setStaged([])
+      if (result.indexing_status !== 'failed' && result.indexing_status !== 'partial') {
+        if (result.processed_files) {
+          setStaged(previous => previous.filter(file => !result.processed_files.includes(file.name)))
+        } else if (result.status === 'success') {
+          setStaged([])
+        }
+      }
     } catch (error) {
       setFeedback({ errors: [error.response?.data?.detail || error.message] })
     } finally {
@@ -50,7 +56,7 @@ export default function IncidentSources({ files, sample, disabled, onUpload }) {
             <input {...getInputProps()} />
             <Upload size={18} />
             <span>{isDragActive ? 'Drop files here' : 'Drop files or browse'}</span>
-            <small>Logs, metrics, screenshots</small>
+            <small>Logs, metrics, screenshots, or incident JSON</small>
           </div>
           {staged.length > 0 && (
             <>
@@ -61,7 +67,8 @@ export default function IncidentSources({ files, sample, disabled, onUpload }) {
             </>
           )}
           {feedback?.errors?.length > 0 && <Alert className="mt-3">{feedback.errors.map((error, index) => <p key={index}>{String(error)}</p>)}</Alert>}
-          {feedback?.status === 'success' && <p className="mt-3 text-xs text-primary" role="status">{feedback.files_processed} files processed · {feedback.chunks_indexed} chunks indexed</p>}
+          {feedback?.warnings?.length > 0 && <Alert className="mt-3">{feedback.warnings.map((warning, index) => <p key={index}>{warning}</p>)}</Alert>}
+          {feedback?.files_processed > 0 && <p className="mt-3 text-xs text-primary" role="status">{feedback.files_processed} files processed · {feedback.observations_added ?? 0} new observations · {feedback.chunks_indexed} chunks indexed</p>}
         </>
       )}
     </Card>

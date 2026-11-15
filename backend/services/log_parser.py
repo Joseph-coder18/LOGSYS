@@ -12,16 +12,17 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from models import BaseChunk
+from models import BaseChunk, Observation
+from services.observations import normalize_timestamp
 from config import LOG_CHUNK_SIZE, LOG_CHUNK_OVERLAP
 
 logger = logging.getLogger("logmind.log_parser")
 
 # ── Regex patterns ────────────────────────────────────────────────────────────
 _PYTHON_LOG = re.compile(
-    r"(?P<timestamp>\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}[,.\d]*)"
+    r"(?P<timestamp>\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}[,.\d]*(?:Z|[+-]\d{2}:?\d{2})?)"
     r"[\s|–-]+"
-    r"(?P<service>[^\s|–-][^\s|–-]*?)"
+    r"(?P<service>[^\s|–-][^\s|–]*?)"
     r"[\s|–-]+"
     r"(?P<severity>DEBUG|INFO|WARN(?:ING)?|ERROR|CRITICAL)"
     r"[\s|–-]+"
@@ -61,7 +62,7 @@ def _parse_line(line: str) -> dict[str, Any]:
             rec = json.loads(line)
             return {
                 "timestamp": rec.get("timestamp") or rec.get("time") or rec.get("ts", ""),
-                "severity":  (rec.get("level") or rec.get("severity") or rec.get("lvl", "INFO")).upper(),
+                "severity":  str(rec.get("level") or rec.get("severity") or rec.get("lvl") or "INFO").upper(),
                 "service":   rec.get("service") or rec.get("logger") or rec.get("name", ""),
                 "message":   rec.get("message") or rec.get("msg") or rec.get("text", line),
                 "raw":       line,
@@ -167,28 +168,29 @@ def _chunk_lines(parsed: list[dict], source_file: str) -> list[BaseChunk]:
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def parse_log_file(file_path: str | Path) -> list[BaseChunk]:
-    """
-    Parse a log file into a list of BaseChunk objects ready for embedding.
-
-    Args:
-        file_path: Path to the .log or .txt file.
-
-    Returns:
-        List of BaseChunk objects (one per window).
-    """
-    path = Path(file_path)
-    if not path.exists():
-        raise FileNotFoundError(f"Log file not found: {path}")
-
-    logger.info("Parsing log file: %s", path.name)
-    try:
-        raw_lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    except Exception as exc:
-        logger.error("Failed to read %s: %s", path, exc)
-        return []
-
-    parsed = [_parse_line(line) for line in raw_lines]
-    chunks = _chunk_lines(parsed, path.name)
-
-    logger.info("  → %d lines → %d chunks", len(raw_lines), len(chunks))
+    """Return the legacy embedding chunks for a log file."""
+    chunks, _ = parse_log(file_path)
     return chunks
+
+
+def parse_log(file_path: str | Path) -> tuple[list[BaseChunk], list[Observation]]:
+    path = Path(file_path)
+    raw_lines = path.read_text(encoding="utf-8-sig").splitlines()
+    parsed = [_parse_line(line) for line in raw_lines]
+    observations = []
+    for index, line in enumerate(parsed):
+        if not line.get("raw"):
+            continue
+        original = str(line["timestamp"]) if line.get("timestamp") else None
+        observations.append(Observation(
+            modality="log",
+            source_file=path.name,
+            source_position=index + 1,
+            service=str(line["service"]) if line.get("service") else None,
+            timestamp=normalize_timestamp(original),
+            original_timestamp=original,
+            severity=line.get("severity"),
+            summary=str(line["message"])[:500],
+            excerpt=raw_lines[index],
+        ))
+    return (_chunk_lines(parsed, path.name) if observations else []), observations

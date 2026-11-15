@@ -1,10 +1,11 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import IncidentImpact from './IncidentImpact'
 import { Badge, Skeleton } from '@/components/ui/surfaces'
 
 const ForceGraph = lazy(() => import('react-force-graph-2d'))
 const colors = { service: '#98b9ff', database: '#f8ca81', file: '#bfc0ff', error: '#ffa5ac' }
 
-export default function InvestigationGraph({ graph, referenceNode }) {
+export default function InvestigationGraph({ graph, referenceNode, sessionId, onObservation }) {
   const frame = useRef(null)
   const [width, setWidth] = useState(0)
   const [selectedId, setSelectedId] = useState(referenceNode)
@@ -16,6 +17,7 @@ export default function InvestigationGraph({ graph, referenceNode }) {
     return { nodes, links }
   }, [graph])
   const selected = graph.nodes.find(node => node.id === selectedId)
+  const labels = new Map(graph.nodes.map(node => [node.id, node.service || node.id]))
   const hovered = graph.nodes.find(node => node.id === hoveredId)
   const connectionCount = hovered
     ? graph.edges.filter(edge => edge.source === hovered.id || edge.target === hovered.id).length
@@ -40,7 +42,7 @@ export default function InvestigationGraph({ graph, referenceNode }) {
               height={300}
               graphData={data}
               nodeLabel={() => ''}
-              linkColor={() => '#667e9e'}
+              linkColor={edge => edge.rel === 'depends_on' ? '#98b9ff' : '#667e9e'}
               linkDirectionalArrowLength={4}
               linkDirectionalArrowRelPos={0.9}
               cooldownTicks={65}
@@ -60,34 +62,40 @@ export default function InvestigationGraph({ graph, referenceNode }) {
                 context.font = `${12 / scale}px Inter, sans-serif`
                 context.textAlign = 'center'
                 context.fillStyle = '#edf2fc'
-                context.fillText(node.id, node.x, node.y + radius + 13 / scale)
+                context.fillText(node.service || node.id, node.x, node.y + radius + 13 / scale)
               }}
             />
           )}
         </Suspense>
       </div>
       <p className="graph-inspection">
-        {hovered ? <><strong>{hovered.id}</strong> · {hovered.type || 'entity'} · {connectionCount} {connectionCount === 1 ? 'connection' : 'connections'}</> : 'Hover over a node to see its type and connections. Select it for details.'}
+        {hovered ? <><strong>{hovered.service || hovered.id}</strong> · {hovered.type || 'entity'} · {connectionCount} {connectionCount === 1 ? 'connection' : 'connections'}</> : 'Hover over a node to see its type and connections. Select it for details.'}
       </p>
       <details className="graph-list">
         <summary>Inspect graph nodes</summary>
         <div className="flex flex-wrap gap-2 pt-3">
           {graph.nodes.map(node => (
             <button type="button" className="service-chip" key={node.id} onClick={() => setSelectedId(node.id)} aria-pressed={selectedId === node.id}>
-              {node.id}
+              {node.service || node.id}
             </button>
           ))}
         </div>
       </details>
       {selected && (
         <div className="graph-selection reference-target" id="graph-reference" tabIndex={-1}>
-          <strong>{selected.id}</strong> <Badge>{selected.type || 'entity'}</Badge>
+          <strong>{selected.service || selected.id}</strong> <Badge>{selected.type || 'entity'}</Badge>
           <ul>
             {graph.edges.filter(edge => edge.source === selected.id || edge.target === selected.id).map((edge, index) => (
-              <li key={index}>{edge.source} → {edge.target}{edge.rel && ` · ${edge.rel}`}</li>
+              <li key={index}>
+                {labels.get(edge.source)} → {labels.get(edge.target)}{edge.rel && ` · ${edge.rel === 'depends_on' ? 'depends on' : edge.rel}`}
+                {edge.source_file && <small className="block text-muted-foreground">{edge.source_file} · record {edge.source_position}</small>}
+              </li>
             ))}
           </ul>
         </div>
+      )}
+      {sessionId && selected && ['service', 'database'].includes(selected.type) && (
+        <IncidentImpact key={selected.id} sessionId={sessionId} service={selected.service || selected.id} onObservation={observationId => onObservation(observationId, selected.id)} />
       )}
     </>
   )

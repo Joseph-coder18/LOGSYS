@@ -5,12 +5,17 @@ and converts findings into text summaries for embedding.
 """
 from __future__ import annotations
 
+import csv
+from collections import defaultdict, deque
 import json
+from math import isfinite
+from statistics import mean, pstdev
 import logging
 from pathlib import Path
 from typing import Any
 
-from models import BaseChunk
+from models import BaseChunk, Observation
+from services.observations import normalize_timestamp
 
 logger = logging.getLogger("logmind.metrics_parser")
 
@@ -31,9 +36,11 @@ _THRESHOLDS: dict[str, float] = {
 # ── Loaders ───────────────────────────────────────────────────────────────────
 
 def _load_json(path: Path) -> list[dict[str, Any]]:
-    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw = json.loads(path.read_text(encoding="utf-8-sig"))
     if isinstance(raw, list):
         return raw
+    if not isinstance(raw, dict):
+        raise ValueError("Expected an array or object of metric records.")
     # {"metrics": [...]} or {"data": [...]}
     for key in ("metrics", "data", "records", "rows"):
         if isinstance(raw.get(key), list):
@@ -41,7 +48,7 @@ def _load_json(path: Path) -> list[dict[str, Any]]:
     # Columnar format: {"cpu": [...], "timestamps": [...]}
     keys = list(raw.keys())
     ts_key = next((k for k in keys if "time" in k.lower()), None)
-    if ts_key:
+    if ts_key and isinstance(raw[ts_key], list):
         n = len(raw[ts_key])
         records = []
         for i in range(n):
@@ -49,78 +56,78 @@ def _load_json(path: Path) -> list[dict[str, Any]]:
             for k in keys:
                 if isinstance(raw[k], list) and i < len(raw[k]):
                     rec[k] = raw[k][i]
+            rec["timestamp"] = raw[ts_key][i]
             records.append(rec)
         return records
     return [raw]
 
 
 def _load_csv(path: Path) -> list[dict[str, Any]]:
-    try:
-        import pandas as pd
-        df = pd.read_csv(path)
-        return df.to_dict(orient="records")
-    except Exception as exc:
-        logger.error("CSV load failed for %s: %s", path.name, exc)
-        return []
+    with path.open(encoding="utf-8-sig", newline="") as stream:
+        reader = csv.DictReader(stream, strict=True)
+        if not reader.fieldnames or len(set(reader.fieldnames)) != len(reader.fieldnames):
+            raise ValueError("Expected a CSV header with unique column names.")
+        records = []
+        for row in reader:
+            if None in row or any(value is None for value in row.values()):
+                raise ValueError(f"CSV record {len(records) + 1} has the wrong column count.")
+            records.append(row)
+        return records
 
 
-# ── Anomaly detection ─────────────────────────────────────────────────────────
+_TIME_FIELDS = {"timestamp", "time", "ts", "date", "timestamps"}
+_SERVICE_FIELDS = {"service", "service_name", "component"}
+
+
+def _field(record: dict, names: set[str]) -> str | None:
+    return next((str(value) for key, value in record.items() if key.lower() in names and value), None)
+
+
+def _metric_values(record: dict) -> dict[str, float]:
+    values = {}
+    for key, raw in record.items():
+        if key.lower() in _TIME_FIELDS | _SERVICE_FIELDS or isinstance(raw, bool):
+            continue
+        try:
+            value = float(raw)
+        except (ValueError, TypeError):
+            continue
+        if isfinite(value):
+            values[key] = value
+    return values
+
 
 def _detect_anomalies(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """
-    Detect spikes using rolling z-score (window=5) and absolute thresholds.
-    Returns a list of anomaly dicts with field, value, threshold/zscore, and timestamp.
-    """
-    if not records:
-        return []
+    """Compare against the previous valid samples for each service and signal."""
+    prepared = []
+    for index, record in enumerate(records):
+        timestamp = _field(record, _TIME_FIELDS)
+        prepared.append((normalize_timestamp(timestamp), index, timestamp, record))
 
-    anomalies: list[dict[str, Any]] = []
-    numeric_keys = [
-        k for k in records[0].keys()
-        if k.lower() not in ("timestamp", "time", "ts", "date")
-        and isinstance(records[0][k], (int, float))
-    ]
-
-    WINDOW = 5
-
-    for key in numeric_keys:
-        values = [r.get(key) for r in records]
-        values_clean = [v for v in values if v is not None]
-        if len(values_clean) < 2:
-            continue
-
-        mean = sum(values_clean) / len(values_clean)
-        variance = sum((v - mean) ** 2 for v in values_clean) / len(values_clean)
-        std = variance ** 0.5
-
-        for i, rec in enumerate(records):
-            val = rec.get(key)
-            if val is None:
-                continue
-            ts = rec.get("timestamp") or rec.get("time") or rec.get("ts") or f"index_{i}"
-
-            # Z-score spike (rolling window)
-            window_vals = values_clean[max(0, i - WINDOW): i + 1]
-            if len(window_vals) >= 2:
-                w_mean = sum(window_vals) / len(window_vals)
-                w_var  = sum((v - w_mean) ** 2 for v in window_vals) / len(window_vals)
-                w_std  = w_var ** 0.5
-                zscore = abs(val - w_mean) / (w_std + 1e-9)
-                if zscore > 2.5:
-                    anomalies.append({
-                        "field": key, "value": val, "timestamp": ts,
-                        "reason": f"z-score spike ({zscore:.1f}σ above rolling mean {w_mean:.1f})",
-                    })
-                    continue
-
-            # Absolute threshold breach
-            thresh = _THRESHOLDS.get(key.lower())
-            if thresh is not None and val > thresh:
+    history = defaultdict(lambda: deque(maxlen=5))
+    anomalies = []
+    for utc, index, timestamp, record in sorted(prepared, key=lambda row: (row[0] is None, row[0], row[1])):
+        service = _field(record, _SERVICE_FIELDS)
+        for key, value in _metric_values(record).items():
+            previous = history[(service, key, utc is not None)]
+            threshold = _THRESHOLDS.get(key.lower())
+            reason = None
+            if threshold is not None and value > threshold:
+                reason = f"threshold breach (value={value:g}, threshold={threshold:g})"
+            elif len(previous) >= 3:
+                baseline = mean(previous)
+                deviation = pstdev(previous)
+                if deviation and abs(value - baseline) / deviation > 2.5:
+                    reason = f"deviation from preceding samples (mean={baseline:g})"
+            previous.append(value)
+            if reason:
                 anomalies.append({
-                    "field": key, "value": val, "timestamp": ts,
-                    "reason": f"threshold breach (value={val:.1f}, threshold={thresh})",
+                    "row": index,
+                    "field": key,
+                    "value": value,
+                    "timestamp": timestamp or f"row {index + 1}",
+                    "reason": reason,
                 })
-
     return anomalies
 
 
@@ -152,54 +159,55 @@ def _records_to_text(records: list[dict], anomalies: list[dict], source_file: st
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def parse_metrics_file(file_path: str | Path) -> list[BaseChunk]:
-    """
-    Parse a CSV or JSON metrics file into BaseChunk objects.
+    """Return the legacy embedding chunks for a metrics file."""
+    chunks, _ = parse_metrics(file_path)
+    return chunks
 
-    Args:
-        file_path: Path to the .csv or .json file.
 
-    Returns:
-        List of BaseChunk objects (typically 1–3 chunks per file).
-    """
+def parse_metrics(file_path: str | Path) -> tuple[list[BaseChunk], list[Observation]]:
     path = Path(file_path)
-    if not path.exists():
-        raise FileNotFoundError(f"Metrics file not found: {path}")
-
-    logger.info("Parsing metrics file: %s", path.name)
-
-    suffix = path.suffix.lower()
-    if suffix == ".json":
-        records = _load_json(path)
-    elif suffix == ".csv":
-        records = _load_csv(path)
-    else:
-        logger.warning("Unknown extension %s — trying JSON", suffix)
-        try:
-            records = _load_json(path)
-        except Exception:
-            records = _load_csv(path)
-
-    if not records:
-        logger.warning("No records loaded from %s", path.name)
-        return []
+    records = _load_csv(path) if path.suffix.lower() == ".csv" else _load_json(path)
+    if any(not isinstance(record, dict) for record in records):
+        raise ValueError("Each metric record must be an object.")
+    if not records or not any(_metric_values(record) for record in records):
+        raise ValueError("No numeric metric samples found.")
 
     anomalies = _detect_anomalies(records)
-    summary_text = _records_to_text(records, anomalies, path.name)
+    by_row = defaultdict(list)
+    for item in anomalies:
+        by_row[item["row"]].append(item)
 
-    metadata: dict[str, Any] = {
-        "modality":        "metrics",
-        "source_file":     path.name,
-        "record_count":    len(records),
-        "anomaly_count":   len(anomalies),
-        "anomaly_fields":  list({a["field"] for a in anomalies}),
-    }
+    observations = []
+    for index, record in enumerate(records):
+        values = _metric_values(record)
+        if not values:
+            continue
+        original = _field(record, _TIME_FIELDS)
+        flagged = by_row[index]
+        observations.append(Observation(
+            modality="metrics",
+            source_file=path.name,
+            source_position=index + 1,
+            service=_field(record, _SERVICE_FIELDS),
+            timestamp=normalize_timestamp(original),
+            original_timestamp=original,
+            summary=", ".join(f"{key}={value:g}" for key, value in values.items())[:500],
+            excerpt=json.dumps(record, ensure_ascii=False),
+            anomalies=[f'{item["field"]}: {item["reason"]}' for item in flagged],
+            metric_values=values,
+            anomaly_fields=[item["field"] for item in flagged],
+        ))
 
     chunk = BaseChunk(
         source_file=path.name,
         modality="metrics",
-        text=summary_text,
-        metadata=metadata,
+        text=_records_to_text(records, anomalies, path.name),
+        metadata={
+            "modality": "metrics",
+            "source_file": path.name,
+            "record_count": len(records),
+            "anomaly_count": len(anomalies),
+            "anomaly_fields": sorted({item["field"] for item in anomalies}),
+        },
     )
-
-    logger.info("  → %d records, %d anomalies, 1 chunk", len(records), len(anomalies))
-    return [chunk]
+    return [chunk], observations

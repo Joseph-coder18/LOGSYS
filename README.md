@@ -109,6 +109,15 @@ Full interactive docs: `http://localhost:8000/docs`
 | **Metrics** | `.csv`, `.json` | Spike detection → text summary → embedded |
 | **Dashboard Screenshots** | `.png`, `.jpg` | Gemini Vision → text summary → embedded |
 
+## Add incident changes and dependencies
+
+Create a live incident and upload the demo logs and metrics from `backend/data/demo/`. Add the two JSON files from `backend/data/demo/context/` through the same Sources panel. This flow works without model or vector-store credentials.
+
+- [Change events](backend/data/demo/context/demo_changes.json) use `"kind": "change_events"` and an `events` array. Each record has a `service`, a timezone-aware `timestamp`, a `summary`, and a `type` of `deployment`, `restart`, or `config_change`. Look for the change label in Timeline and expand the record to inspect its source.
+- [Service dependencies](backend/data/demo/context/demo_dependencies.json) use `"kind": "service_dependencies"` and a `dependencies` array of `caller` and `callee` records. One manifest is active per incident. Uploading a new valid manifest replaces the previous topology.
+
+Use the same service names in the manifest, change records, and telemetry. In Graph, blue arrows point from callers to their dependencies. Select `user-db` to see **Potential impact**, which follows the declared edges back to callers. Select an observation to open its source in the timeline.
+
 ---
 
 ## Environment Variables

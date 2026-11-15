@@ -4,7 +4,7 @@ LogMind – Shared Pydantic models used across all services.
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -29,6 +29,44 @@ class IngestResult(BaseModel):
     graph_nodes: int = 0
     graph_edges: int = 0
     errors: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    processed_files: list[str] = Field(default_factory=list)
+    observations_added: int = 0
+    indexing_status: Literal["skipped", "complete", "partial", "failed"] = "skipped"
+
+
+class Observation(BaseModel):
+    id: str = ""
+    modality: Literal["log", "metrics", "change"]
+    source_file: str
+    source_position: int
+    service: str | None = None
+    timestamp: str | None = None  # UTC ISO 8601, when the source supplies a timezone
+    original_timestamp: str | None = None
+    summary: str
+    excerpt: str
+    severity: str | None = None
+    change_type: Literal["deployment", "restart", "config_change"] | None = None
+    anomalies: list[str] = Field(default_factory=list)
+    metric_values: dict[str, float] = Field(default_factory=dict)
+    anomaly_fields: list[str] = Field(default_factory=list)
+
+
+ObservationFilter = Literal["all", "anomalies", "changes", "errors"]
+
+
+class ObservationCounts(BaseModel):
+    all: int = 0
+    anomalies: int = 0
+    changes: int = 0
+    errors: int = 0
+
+
+class ObservationPage(BaseModel):
+    observations: list[Observation]
+    next_offset: int | None = None
+    counts: ObservationCounts = Field(default_factory=ObservationCounts)
+    services: list[str] = Field(default_factory=list)
 
 
 class EvidenceItem(BaseModel):

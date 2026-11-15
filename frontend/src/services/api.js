@@ -40,6 +40,12 @@ export async function sessionQuery(sessionId, query) {
 }
 
 // ── Session — Graph ───────────────────────────────────────────────────────────
+export const sessionObservations = async (id, { offset = 0, category, service } = {}) =>
+  (await client.get(`/sessions/${id}/observations`, { params: { offset, category, service: service || undefined } })).data
+export const sessionObservation = async (id, observationId) =>
+  (await client.get(`/sessions/${id}/observations/${observationId}`)).data
+export const sessionImpact = async (id, service) =>
+  (await client.get(`/sessions/${id}/impact`, { params: { service } })).data
 export const sessionGraph   = async (id) => (await client.get(`/sessions/${id}/graph`)).data
 
 // ── Session — Chat history ────────────────────────────────────────────────────

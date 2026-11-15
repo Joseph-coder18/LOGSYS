@@ -19,16 +19,19 @@ Backward-compat (global graph, no session):
 """
 from __future__ import annotations
 
+import json
 import logging
+from hashlib import sha256
+from math import isfinite
 import tempfile
 from pathlib import Path
-from typing import Any
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
-from models import BaseChunk, IngestResult, RCAOutput, Session, CreateSessionRequest
+from models import BaseChunk, IngestResult, RCAOutput, Session, CreateSessionRequest, Observation, ObservationFilter, ObservationPage
 
 logger = logging.getLogger("logmind.api")
 
@@ -43,7 +46,6 @@ class QueryRequest(BaseModel):
 _LOG_EXTS     = {".log", ".txt"}
 _IMAGE_EXTS   = {".png", ".jpg", ".jpeg", ".webp"}
 _METRICS_EXTS = {".csv", ".json"}
-_ALL_EXTS     = _LOG_EXTS | _IMAGE_EXTS | _METRICS_EXTS
 
 
 def _detect_modality(filename: str) -> str:
@@ -54,114 +56,151 @@ def _detect_modality(filename: str) -> str:
     return "unknown"
 
 
-# ── Internal ingest helper ────────────────────────────────────────────────────
+# ── Internal ingest helpers ──────────────────────────────────────────────────
 
-async def _run_ingest(
-    files: list[UploadFile],
-    session_id: str | None = None,
-) -> IngestResult:
-    """
-    Core ingest logic shared by global and session-scoped routes.
-    Pass session_id=None for the global (backward-compat) pipeline.
-    """
-    from services import log_parser, image_analyzer, metrics_parser, embedder, pinecone_store
-    from services.graph_store import add_entity, add_relationship, get_stats
+_MAX_FILES = 20
+_MAX_FILE_BYTES = 5 * 1024 * 1024
 
-    result     = IngestResult()
-    all_chunks: list[BaseChunk] = []
-    errors: list[str] = []
 
-    with tempfile.TemporaryDirectory() as tmp:
-        tmp_path = Path(tmp)
+def _add_file_to_graph(name: str, modality: str, chunks: list[BaseChunk], session_id: str | None) -> None:
+    from services.graph_store import add_entity, add_relationship
 
-        for upload in files:
-            fname = upload.filename or "upload"
-            ext   = Path(fname).suffix.lower()
+    add_entity(name, "file", session_id=session_id, modality=modality)
+    for key, entity_type in (("services", "service"), ("exceptions", "error"), ("databases", "database")):
+        entities = set()
+        for chunk in chunks:
+            values = chunk.metadata.get(key, [])
+            if isinstance(values, str):
+                values = values.split(",")
+            entities.update(value.strip() for value in values if value.strip())
+        for entity in sorted(entities):
+            add_entity(entity, entity_type, session_id=session_id)
+            source, target = (entity, name) if entity_type == "error" else (name, entity)
+            add_relationship(source, target, "observed_in", session_id=session_id)
 
-            if ext not in _ALL_EXTS:
-                errors.append(f"Skipped {fname}: unsupported extension {ext}")
-                continue
 
-            dest    = tmp_path / fname
-            content = await upload.read()
-            dest.write_bytes(content)
-            result.files_processed += 1
+def _index_chunks(chunks: list[BaseChunk], session_id: str | None, result: IngestResult) -> None:
+    from config import EMBEDDING_DIM
+    from services import embedder, pinecone_store
 
-            modality = _detect_modality(fname)
-            logger.info("Processing %s as %s (session=%s)", fname, modality, session_id or "global")
+    try:
+        embeddings = embedder.embed_batch([chunk.text for chunk in chunks])
+        pairs = [
+            (chunk, vector) for chunk, vector in zip(chunks, embeddings)
+            if len(vector) == EMBEDDING_DIM and any(vector) and all(isfinite(value) for value in vector)
+        ]
+        if pairs:
+            valid_chunks, valid_embeddings = zip(*pairs)
+            info = pinecone_store.upsert_chunks(list(valid_chunks), list(valid_embeddings), namespace=session_id)
+            result.chunks_indexed = info.get("upserted", 0)
+    except Exception:
+        logger.exception("Vector indexing failed for session %s", session_id)
 
-            try:
-                if modality == "log":
-                    chunks = log_parser.parse_log_file(dest)
-                elif modality == "image":
-                    chunks = [image_analyzer.analyze_image(dest)]
-                elif modality == "metrics":
-                    chunks = metrics_parser.parse_metrics_file(dest)
-                else:
+    if result.chunks_indexed == len(chunks):
+        result.indexing_status = "complete"
+    else:
+        result.indexing_status = "partial" if result.chunks_indexed else "failed"
+        result.warnings.append(f"Indexed {result.chunks_indexed} of {len(chunks)} chunks. Retry the upload to index the remaining chunks.")
+
+
+async def _run_ingest(files: list[UploadFile], session_id: str | None = None) -> IngestResult:
+    from config import GEMINI_API_KEY, PINECONE_API_KEY
+    from services import image_analyzer, log_parser, metrics_parser
+    from services.graph_store import get_stats
+    from services.incident_context import parse_changes, save_dependencies
+    from services.observations import save_observations
+    from services.session_store import _session_dir, get_session, update_session
+
+    if len(files) > _MAX_FILES:
+        raise HTTPException(status_code=413, detail=f"Upload at most {_MAX_FILES} files at once.")
+
+    result = IngestResult()
+    all_chunks = []
+    for upload in files:
+        name = upload.filename or ""
+        if not name or len(name.encode("utf-8")) > 255 or any(char in name for char in ("/", "\\")) or any(ord(char) < 32 for char in name):
+            result.errors.append("Skipped a file with an invalid filename.")
+            continue
+        modality = _detect_modality(name)
+        if modality == "unknown":
+            result.errors.append(f"Skipped {name}: unsupported file type.")
+            continue
+        try:
+            content = await upload.read(_MAX_FILE_BYTES + 1)
+            if len(content) > _MAX_FILE_BYTES:
+                raise ValueError("File exceeds the 5 MiB upload limit.")
+            if not content:
+                raise ValueError("File is empty.")
+            digest = sha256(content).hexdigest()
+            if Path(name).suffix.lower() == ".json":
+                document = json.loads(content.decode("utf-8-sig"))
+                kind = document.get("kind") if isinstance(document, dict) else None
+                if kind in ("change_events", "service_dependencies"):
+                    if session_id is None:
+                        raise ValueError("Upload operational changes and dependencies inside an incident.")
+                    directory = _session_dir(session_id)
+                    if kind == "change_events":
+                        observations = parse_changes(document, name)
+                        result.observations_added += save_observations(directory, digest, observations)
+                    else:
+                        save_dependencies(directory, document, name)
+                    result.processed_files.append(name)
                     continue
 
-                all_chunks.extend(chunks)
+            # Each file has its own generated directory, including files with the same name.
+            with tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / name
+                path.write_bytes(content)
+                if modality == "log":
+                    chunks, observations = log_parser.parse_log(path)
+                elif modality == "metrics":
+                    chunks, observations = metrics_parser.parse_metrics(path)
+                else:
+                    chunk = await run_in_threadpool(image_analyzer.analyze_image, path)
+                    if not chunk.text.strip() or chunk.text.startswith(("[No API key]", "[Vision unavailable]", "[Vision error]")):
+                        raise ValueError("Screenshot analysis was unavailable. Check the vision provider settings and retry.")
+                    chunks, observations = [chunk], []
+            if not chunks:
+                raise ValueError("No usable telemetry found.")
+            if session_id and get_session(session_id) is None:
+                raise HTTPException(status_code=404, detail="Session no longer exists.")
 
-                # Update knowledge graph (session-scoped or global)
-                for chunk in chunks:
-                    meta = chunk.metadata
-                    add_entity(fname, "file", session_id=session_id, modality=modality)
+            if session_id:
+                result.observations_added += save_observations(_session_dir(session_id), digest, observations)
+            _add_file_to_graph(name, modality, chunks, session_id)
+            for index, chunk in enumerate(chunks):
+                chunk.chunk_id = sha256(f"{name}/{digest}/{index}".encode("utf-8")).hexdigest()
+            all_chunks.extend(chunks)
+            result.processed_files.append(name)
+        except HTTPException:
+            raise
+        except (ValueError, OSError) as exc:
+            result.errors.append(f"{name}: {exc}")
+        except Exception:
+            logger.exception("Error processing upload %s", name)
+            result.errors.append(f"{name}: could not process the file.")
 
-                    services   = meta.get("services",   [])
-                    exceptions = meta.get("exceptions", [])
-                    databases  = meta.get("databases",  [])
-
-                    if isinstance(services,   str): services   = [s.strip() for s in services.split(",")   if s.strip()]
-                    if isinstance(exceptions, str): exceptions = [e.strip() for e in exceptions.split(",") if e.strip()]
-                    if isinstance(databases,  str): databases  = [d.strip() for d in databases.split(",")  if d.strip()]
-
-                    for svc in services:
-                        if svc:
-                            add_entity(svc, "service", session_id=session_id)
-                            add_relationship(fname, svc, "observed_in", session_id=session_id)
-                    for exc in exceptions:
-                        if exc:
-                            add_entity(exc, "error", session_id=session_id)
-                            add_relationship(exc, fname, "observed_in", session_id=session_id)
-                    for db in databases:
-                        if db:
-                            add_entity(db, "database", session_id=session_id)
-                            add_relationship(fname, db, "observed_in", session_id=session_id)
-
-            except Exception as exc:
-                msg = f"Error processing {fname}: {exc}"
-                logger.error(msg)
-                errors.append(msg)
-
-    # Embed + upsert (namespace = session_id for isolation)
-    if all_chunks:
-        logger.info("Embedding %d chunks ...", len(all_chunks))
-        embeddings  = embedder.embed_batch([c.text for c in all_chunks])
-        upsert_info = pinecone_store.upsert_chunks(all_chunks, embeddings, namespace=session_id)
-        result.chunks_indexed = upsert_info.get("upserted", 0)
-    else:
-        result.chunks_indexed = 0
-
-    g = get_stats(session_id=session_id)
-    result.graph_nodes = g["nodes"]
-    result.graph_edges = g["edges"]
-    result.errors      = errors
-    result.status      = "success" if not errors else "partial"
-
-    logger.info("Ingest [session=%s]: %d files → %d chunks → %d nodes / %d edges",
-                session_id or "global",
-                result.files_processed, result.chunks_indexed,
-                result.graph_nodes, result.graph_edges)
-
-    # Sync counts back to session metadata
-    if session_id:
-        from services.session_store import update_session
+    result.files_processed = len(result.processed_files)
+    stats = get_stats(session_id=session_id)
+    result.graph_nodes, result.graph_edges = stats["nodes"], stats["edges"]
+    if session_id and (meta := get_session(session_id)):
         update_session(
             session_id,
+            files=list(dict.fromkeys(meta.get("files", []) + result.processed_files)),
             node_count=result.graph_nodes,
             edge_count=result.graph_edges,
         )
 
+    if all_chunks:
+        if GEMINI_API_KEY and PINECONE_API_KEY:
+            await run_in_threadpool(_index_chunks, all_chunks, session_id, result)
+        else:
+            result.warnings.append("Vector indexing is disabled because embedding or Pinecone credentials are missing.")
+
+    if not result.files_processed:
+        result.status = "failed"
+    elif result.errors or result.indexing_status in {"partial", "failed"}:
+        result.status = "partial"
     return result
 
 
@@ -218,21 +257,54 @@ async def session_ingest(session_id: str, files: list[UploadFile] = File(...)):
     Ingest files into a specific session's knowledge graph.
     All parsed chunks are stored with namespace=session_id in Pinecone.
     """
-    from services.session_store import get_session as _get, update_session
+    from services.session_store import get_session as _get
     meta = _get(session_id)
     if meta is None:
         raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found.")
     if not files:
         raise HTTPException(status_code=400, detail="No files provided.")
 
-    result = await _run_ingest(files, session_id=session_id)
+    return await _run_ingest(files, session_id=session_id)
 
-    # Track uploaded filenames in session metadata
-    existing_files = meta.get("files", [])
-    new_files = [f.filename for f in files if f.filename and f.filename not in existing_files]
-    update_session(session_id, files=existing_files + new_files)
 
-    return result
+@router.get("/sessions/{session_id}/observations", response_model=ObservationPage, tags=["Sessions"])
+async def session_observations(
+    session_id: str,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=250),
+    category: ObservationFilter = "all",
+    service: str | None = Query(None, min_length=1),
+):
+    """List source-linked telemetry in UTC order, followed by undated observations."""
+    from services.observations import load_observations
+    from services.session_store import _session_dir, get_session
+
+    if get_session(session_id) is None:
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found.")
+    return load_observations(_session_dir(session_id), offset, limit, category, service)
+
+
+@router.get("/sessions/{session_id}/observations/{observation_id}", response_model=Observation, tags=["Sessions"])
+async def session_observation(session_id: str, observation_id: str):
+    from services.observations import observation_by_id
+    from services.session_store import _session_dir, get_session
+
+    if get_session(session_id) is None:
+        raise HTTPException(status_code=404, detail="Session not found.")
+    observation = observation_by_id(_session_dir(session_id), observation_id)
+    if observation is None:
+        raise HTTPException(status_code=404, detail="Observation not found in this session.")
+    return observation
+
+
+@router.get("/sessions/{session_id}/impact", tags=["Sessions"])
+async def session_impact(session_id: str, service: str = Query(min_length=1, max_length=120)):
+    from services.incident_context import potential_impact
+    from services.session_store import _session_dir, get_session
+
+    if get_session(session_id) is None:
+        raise HTTPException(status_code=404, detail="Session not found.")
+    return potential_impact(_session_dir(session_id), service)
 
 
 # ── Session — Query ───────────────────────────────────────────────────────────
