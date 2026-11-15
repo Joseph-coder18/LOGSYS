@@ -9,7 +9,7 @@ import networkx as nx
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from models import Observation, PoolLimitChange
-from services.observations import database_path, normalize_timestamp, recent_signals
+from services.observations import database_path, normalize_timestamp, recent_metric_samples, recent_signals
 
 ServiceName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
 Description = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=1000)]
@@ -145,6 +145,7 @@ def potential_impact(session_dir: Path, service: str) -> dict:
     return {
         "service": service,
         "observations": signals.get(service, []),
+        "metric_samples": recent_metric_samples(session_dir, service),
         "dependents": [
             {"service": name, "path": paths[name], "observations": signals.get(name, [])}
             for name in services

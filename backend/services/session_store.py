@@ -23,6 +23,7 @@ import pickle
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Any
 
 import networkx as nx
@@ -229,20 +230,38 @@ def get_session_chat(session_id: str) -> list[dict]:
         return []
 
 
-def append_session_chat(session_id: str, entry: dict) -> None:
-    """
-    Append a single chat turn to the session's history.
-
-    Args:
-        entry: {role: "user"|"assistant", content: str|dict, timestamp?: str}
-    """
-    if "timestamp" not in entry:
-        entry["timestamp"] = _now_iso()
+def append_session_chat(session_id: str, entry: dict, *entries: dict) -> None:
+    """Append a chat exchange atomically, retaining compatibility with single entries."""
+    path = _chat_path(session_id)
     history = get_session_chat(session_id)
-    history.append(entry)
-    _chat_path(session_id).write_text(
-        json.dumps(history, indent=2, default=str), encoding="utf-8"
-    )
+    history.extend({"timestamp": _now_iso(), **item} for item in (entry, *entries))
+    _replace_json(path, history)
+
+
+def get_saved_verification(session_id: str) -> dict | None:
+    try:
+        return json.loads((_session_dir(session_id) / "verification.json").read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+
+
+def save_verification(session_id: str, diagnosis: dict) -> None:
+    try:
+        _replace_json(_session_dir(session_id) / "verification.json", diagnosis)
+    except FileNotFoundError:
+        # The incident may have been deleted while the verifier was running.
+        pass
+
+
+def _replace_json(path: Path, value: Any) -> None:
+    with NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, delete=False) as stream:
+        temporary_path = Path(stream.name)
+        try:
+            json.dump(value, stream, indent=2, default=str)
+            stream.close()
+            temporary_path.replace(path)
+        finally:
+            temporary_path.unlink(missing_ok=True)
 
 
 def clear_session_chat(session_id: str) -> None:

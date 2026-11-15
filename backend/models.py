@@ -75,6 +75,23 @@ class ObservationPage(BaseModel):
     services: list[str] = Field(default_factory=list)
 
 
+class ActivityBucket(BaseModel):
+    start: str
+    end: str
+    counts: ObservationCounts
+
+
+class IncidentOverview(BaseModel):
+    revision: str
+    counts: ObservationCounts = Field(default_factory=ObservationCounts)
+    modalities: dict[str, int] = Field(default_factory=dict)
+    services: list[str] = Field(default_factory=list)
+    first_at: str | None = None
+    last_at: str | None = None
+    undated: int = 0
+    activity: list[ActivityBucket] = Field(default_factory=list)
+
+
 class EvidenceItem(BaseModel):
     type: str              # modality
     source: str            # filename
@@ -83,6 +100,7 @@ class EvidenceItem(BaseModel):
     observation_id: str | None = None
     source_position: int | None = None
     why: str | None = None
+    timestamp: str | None = None
 
 
 class RCAOutput(BaseModel):
@@ -97,9 +115,48 @@ class RCAOutput(BaseModel):
     answer: str = ""
 
 
+class HypothesisCheck(BaseModel):
+    criterion: str
+    outcome: Literal["supports", "contradicts", "missing"]
+    detail: str
+    observation_id: str | None = None
+
+
+class Hypothesis(BaseModel):
+    label: str
+    service: str
+    score: int
+    checks: list[HypothesisCheck]
+
+
+class NextCheck(BaseModel):
+    instruction: str
+    service: str | None = None
+    start: str | None = None
+    end: str | None = None
+
+
 class VerifiedRCA(RCAOutput):
     decision: Literal["supported", "ambiguous", "insufficient_evidence"]
     suspected_origin: str | None = None
+    hypotheses: list[Hypothesis] = Field(default_factory=list)
+    next_check: NextCheck | None = None
+    evidence_revision: str | None = None
+
+
+class ObservationCitation(BaseModel):
+    observation_id: str
+    label: str
+
+
+class ApprovedClaim(BaseModel):
+    text: str
+    citations: list[ObservationCitation] = Field(default_factory=list)
+
+
+class GroundedReply(VerifiedRCA):
+    claims: list[ApprovedClaim] = Field(default_factory=list)
+    answer_mode: Literal["generated", "local"] = "local"
 
 
 # ── Session models (Phase 4A) ─────────────────────────────────────────────────

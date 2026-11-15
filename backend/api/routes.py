@@ -25,13 +25,14 @@ from hashlib import sha256
 from math import isfinite
 import tempfile
 from pathlib import Path
+from typing import Literal
 
-from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
-from models import BaseChunk, IngestResult, RCAOutput, Session, CreateSessionRequest, Observation, ObservationFilter, ObservationPage, VerifiedRCA
+from models import GroundedReply, BaseChunk, IngestResult, RCAOutput, Session, CreateSessionRequest, Observation, ObservationFilter, ObservationPage, IncidentOverview, VerifiedRCA
 
 logger = logging.getLogger("logmind.api")
 
@@ -40,6 +41,10 @@ router = APIRouter()
 # ── Request models ────────────────────────────────────────────────────────────
 class QueryRequest(BaseModel):
     query: str
+
+
+class SessionQueryRequest(QueryRequest):
+    mode: Literal["grounded", "graph_rag"] = "grounded"
 
 
 # ── File extension sets ───────────────────────────────────────────────────────
@@ -169,6 +174,8 @@ async def _run_ingest(files: list[UploadFile], session_id: str | None = None) ->
                 result.observations_added += save_observations(_session_dir(session_id), digest, observations)
             _add_file_to_graph(name, modality, chunks, session_id)
             for index, chunk in enumerate(chunks):
+                if session_id and observations:
+                    chunk.metadata["source_digest"] = digest
                 chunk.chunk_id = sha256(f"{name}/{digest}/{index}".encode("utf-8")).hexdigest()
             all_chunks.extend(chunks)
             result.processed_files.append(name)
@@ -267,6 +274,16 @@ async def session_ingest(session_id: str, files: list[UploadFile] = File(...)):
     return await _run_ingest(files, session_id=session_id)
 
 
+@router.get("/sessions/{session_id}/overview", response_model=IncidentOverview, tags=["Sessions"])
+async def session_overview(session_id: str):
+    from services.observations import incident_overview
+    from services.session_store import _session_dir, get_session
+
+    if get_session(session_id) is None:
+        raise HTTPException(status_code=404, detail="Session not found.")
+    return incident_overview(_session_dir(session_id))
+
+
 @router.get("/sessions/{session_id}/observations", response_model=ObservationPage, tags=["Sessions"])
 async def session_observations(
     session_id: str,
@@ -274,14 +291,21 @@ async def session_observations(
     limit: int = Query(100, ge=1, le=250),
     category: ObservationFilter = "all",
     service: str | None = Query(None, min_length=1),
+    start: str | None = None,
+    end: str | None = None,
 ):
     """List source-linked telemetry in UTC order, followed by undated observations."""
-    from services.observations import load_observations
+    from services.observations import load_observations, normalize_timestamp
     from services.session_store import _session_dir, get_session
 
     if get_session(session_id) is None:
         raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found.")
-    return load_observations(_session_dir(session_id), offset, limit, category, service)
+    start_utc, end_utc = normalize_timestamp(start), normalize_timestamp(end)
+    if (start is not None and start_utc is None) or (end is not None and end_utc is None):
+        raise HTTPException(status_code=422, detail="Time filters require timestamps with timezones.")
+    if start_utc and end_utc and start_utc >= end_utc:
+        raise HTTPException(status_code=422, detail="The end of the time range must be after the start.")
+    return load_observations(_session_dir(session_id), offset, limit, category, service, start_utc, end_utc)
 
 
 @router.get("/sessions/{session_id}/observations/{observation_id}", response_model=Observation, tags=["Sessions"])
@@ -307,52 +331,66 @@ async def session_impact(session_id: str, service: str = Query(min_length=1, max
     return potential_impact(_session_dir(session_id), service)
 
 
+@router.get("/sessions/{session_id}/verification/latest", response_model=VerifiedRCA | None, tags=["Sessions"])
+async def latest_session_verification(session_id: str):
+    from services.session_store import get_session, get_saved_verification
+
+    if get_session(session_id) is None:
+        raise HTTPException(status_code=404, detail="Session not found.")
+    return get_saved_verification(session_id)
+
+
 @router.get("/sessions/{session_id}/verification", response_model=VerifiedRCA, tags=["Sessions"])
-async def session_verification(session_id: str):
-    from services.session_store import _session_dir, get_session
+@router.post("/sessions/{session_id}/verification", response_model=VerifiedRCA, tags=["Sessions"])
+async def session_verification(session_id: str, request: Request):
+    from services.observations import evidence_revision
+    from services.session_store import _session_dir, get_session, save_verification
     from services.verification import verify_incident
 
     if get_session(session_id) is None:
         raise HTTPException(status_code=404, detail="Session not found.")
-    return verify_incident(_session_dir(session_id))
+    session_dir = _session_dir(session_id)
+    diagnosis = verify_incident(session_dir)
+    if request.method == "POST" and diagnosis.evidence_revision == evidence_revision(session_dir):
+        save_verification(session_id, diagnosis.model_dump())
+    return diagnosis
 
 
 # ── Session — Query ───────────────────────────────────────────────────────────
 
-@router.post("/sessions/{session_id}/query", response_model=RCAOutput, tags=["Sessions"])
-async def session_query(session_id: str, request: QueryRequest):
-    """
-    Run incident analysis scoped to a specific session.
-    Only evidence from this session's files and graph is used.
-    The Q&A is saved to the session's chat history.
-    """
-    from services.session_store import get_session as _get, append_session_chat
-    meta = _get(session_id)
-    if meta is None:
+@router.post("/sessions/{session_id}/query", response_model=GroundedReply | RCAOutput, tags=["Sessions"])
+async def session_query(session_id: str, request: SessionQueryRequest):
+    """Answer from verified session evidence, with an opt-in Graph RAG baseline."""
+    from services.session_store import _session_dir, append_session_chat, get_session, get_session_chat
+
+    if get_session(session_id) is None:
         raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found.")
     if not request.query.strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty.")
 
-    logger.info("Session query [%s]: %s", session_id[:8], request.query)
-
     try:
-        from agents.orchestrator import Orchestrator
-        result = Orchestrator().run(request.query, session_id=session_id)
+        if request.mode == "graph_rag":
+            from agents.orchestrator import Orchestrator
 
-        # Persist Q&A to chat history
-        append_session_chat(session_id, {"role": "user",      "content": request.query})
-        append_session_chat(session_id, {"role": "assistant", "content": result.model_dump()})
+            result = await run_in_threadpool(Orchestrator().run, request.query, session_id)
+        else:
+            from services.grounded_chat import answer_incident
 
-        return result
+            result = await answer_incident(_session_dir(session_id), request.query, get_session_chat(session_id))
+        if get_session(session_id) is None:
+            raise HTTPException(status_code=404, detail="Session no longer exists.")
 
-    except Exception as exc:
-        logger.error("Session query error [%s]: %s", session_id[:8], exc, exc_info=True)
-        return RCAOutput(
-            answer     = f"Analysis error: {exc}",
-            root_cause = "Analysis failed — check server logs.",
-            confidence = "low",
-            agent_trace=[{"agent": "orchestrator", "action": "error", "result": str(exc)}],
+        append_session_chat(
+            session_id,
+            {"role": "user", "content": request.query},
+            {"role": "assistant", "content": result.model_dump()},
         )
+        return result
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Session query failed [%s]", session_id[:8])
+        raise HTTPException(status_code=500, detail="Could not answer this incident question.") from exc
 
 
 # ── Session — Graph ───────────────────────────────────────────────────────────
