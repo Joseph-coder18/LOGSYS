@@ -51,8 +51,7 @@ def _get_index():
         logger.info("Pinecone index '%s' ready.", PINECONE_INDEX_NAME)
 
     except Exception as exc:
-        logger.error("Pinecone init failed: %s — vector store disabled.", exc)
-        _initialized = True  # prevent retry storms
+        logger.error("Pinecone init failed: %s", exc)
 
     return _index
 

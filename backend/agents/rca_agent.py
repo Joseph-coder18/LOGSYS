@@ -11,7 +11,8 @@ import re
 from typing import Any
 
 from agents.base_agent import BaseAgent
-from config import GEMINI_API_KEY, GROQ_API_KEY, LLM_MODEL
+from config import LLM_MODEL
+from services.text_generation import configured_provider, generate_text
 from models import RCAOutput, EvidenceItem
 
 logger = logging.getLogger("logmind.agent.rca")
@@ -163,17 +164,9 @@ class RCAAgent(BaseAgent):
 
         rca_dict: dict = {}
 
-        # ── Provider auto-detection ───────────────────────────────────────
-        # Groq models: llama-*, mixtral-*, gemma-* (anything without "gemini")
-        # Gemini models: gemini-*
-        _is_groq   = GROQ_API_KEY   and not LLM_MODEL.startswith("gemini")
-        _is_gemini = GEMINI_API_KEY and     LLM_MODEL.startswith("gemini")
-
-        if not _is_groq and not _is_gemini:
-            missing = []
-            if not GROQ_API_KEY:   missing.append("GROQ_API_KEY")
-            if not GEMINI_API_KEY: missing.append("GEMINI_API_KEY")
-            self._trace("llm_skip", f"No API key for model '{LLM_MODEL}'. Missing: {missing}")
+        provider = configured_provider()
+        if not provider:
+            self._trace("llm_skip", f"No API key configured for model '{LLM_MODEL}'.")
             rca_dict = _template_rca(query, evidence, graph_nodes)
         else:
             prompt = _RCA_PROMPT.format(
@@ -182,37 +175,8 @@ class RCAAgent(BaseAgent):
                 graph_text=graph_text,
             )
             try:
-                if _is_groq:
-                    # ── Groq (OpenAI-compatible) ──────────────────────────
-                    import httpx
-                    resp = httpx.post(
-                        "https://api.groq.com/openai/v1/chat/completions",
-                        headers={
-                            "Authorization": f"Bearer {GROQ_API_KEY}",
-                            "Content-Type":  "application/json",
-                        },
-                        json={
-                            "model":       LLM_MODEL,
-                            "messages":    [{"role": "user", "content": prompt}],
-                            "temperature": 0.2,
-                            "max_tokens":  2048,
-                        },
-                        timeout=60,
-                    )
-                    resp.raise_for_status()
-                    raw_text = resp.json()["choices"][0]["message"]["content"]
-                    self._trace("llm_call", f"Groq {LLM_MODEL} responded ({len(raw_text)} chars)")
-
-                else:
-                    # ── Gemini ────────────────────────────────────────────
-                    from google import genai
-                    client   = genai.Client(api_key=GEMINI_API_KEY)
-                    response = client.models.generate_content(
-                        model=LLM_MODEL,
-                        contents=prompt,
-                    )
-                    raw_text = response.text
-                    self._trace("llm_call", f"Gemini {LLM_MODEL} responded ({len(raw_text)} chars)")
+                raw_text = generate_text(prompt, timeout_seconds=60, max_tokens=2048)
+                self._trace("llm_call", f"{provider} {LLM_MODEL} responded ({len(raw_text)} chars)")
 
                 rca_dict = _extract_json(raw_text)
                 if not rca_dict:

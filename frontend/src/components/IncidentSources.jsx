@@ -32,7 +32,13 @@ export default function IncidentSources({ files, sample, disabled, onUpload }) {
     try {
       const result = await onUpload(staged)
       setFeedback(result)
-      if (result.status === 'success') setStaged([])
+      if (result.indexing_status !== 'failed' && result.indexing_status !== 'partial') {
+        if (result.processed_files) {
+          setStaged(previous => previous.filter(file => !result.processed_files.includes(file.name)))
+        } else if (result.status === 'success') {
+          setStaged([])
+        }
+      }
     } catch (error) {
       setFeedback({ errors: [error.response?.data?.detail || error.message] })
     } finally {
@@ -41,16 +47,16 @@ export default function IncidentSources({ files, sample, disabled, onUpload }) {
   }
 
   return (
-    <Card className="side-panel">
+    <Card id="incident-sources" tabIndex={-1} className="side-panel scroll-mt-20">
       <div className="side-panel-title"><h2>Sources</h2><span>{files.length}</span></div>
       {files.length > 0 && <ul className="source-list">{files.map(name => <li key={name}><FileText size={15} /><span>{name}</span></li>)}</ul>}
       {!sample && (
         <>
-          <div {...getRootProps({ className: `dropzone${isDragActive ? ' is-dragging' : ''}`, role: 'button', 'aria-label': 'Choose telemetry files', 'aria-disabled': disabled || busy })}>
+          <div {...getRootProps({ id: 'telemetry-picker', className: `dropzone${isDragActive ? ' is-dragging' : ''}`, role: 'button', 'aria-label': 'Choose telemetry files', 'aria-disabled': disabled || busy })}>
             <input {...getInputProps()} />
             <Upload size={18} />
             <span>{isDragActive ? 'Drop files here' : 'Drop files or browse'}</span>
-            <small>Logs, metrics, screenshots</small>
+            <small>Logs, metrics, screenshots, or incident JSON</small>
           </div>
           {staged.length > 0 && (
             <>
@@ -61,7 +67,8 @@ export default function IncidentSources({ files, sample, disabled, onUpload }) {
             </>
           )}
           {feedback?.errors?.length > 0 && <Alert className="mt-3">{feedback.errors.map((error, index) => <p key={index}>{String(error)}</p>)}</Alert>}
-          {feedback?.status === 'success' && <p className="mt-3 text-xs text-primary" role="status">{feedback.files_processed} files processed · {feedback.chunks_indexed} chunks indexed</p>}
+          {feedback?.warnings?.length > 0 && <Alert className="mt-3">{feedback.warnings.map((warning, index) => <p key={index}>{warning}</p>)}</Alert>}
+          {feedback?.files_processed > 0 && <p className="mt-3 text-xs text-primary" role="status">{feedback.files_processed} files processed · {feedback.observations_added ?? 0} new observations · {feedback.chunks_indexed} chunks indexed</p>}
         </>
       )}
     </Card>

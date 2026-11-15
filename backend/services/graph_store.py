@@ -126,8 +126,11 @@ def get_neighbors(
 def get_graph_json(session_id: str | None = None) -> dict[str, Any]:
     """Serialize graph to JSON-safe dict. Uses session graph if session_id given."""
     if session_id is not None:
-        from services.session_store import get_session_graph_json
-        return get_session_graph_json(session_id)
+        from services.incident_context import add_topology, load_dependencies
+        from services.session_store import _session_dir, get_session_graph_json
+
+        graph = get_session_graph_json(session_id)
+        return add_topology(graph, load_dependencies(_session_dir(session_id)))
     g = _graph
     return {
         "nodes": [{"id": n, **data} for n, data in g.nodes(data=True)],
@@ -137,6 +140,9 @@ def get_graph_json(session_id: str | None = None) -> dict[str, Any]:
 
 def get_stats(session_id: str | None = None) -> dict[str, int]:
     """Return node/edge counts for the global or session graph."""
+    if session_id is not None:
+        graph = get_graph_json(session_id)
+        return {"nodes": len(graph["nodes"]), "edges": len(graph["edges"])}
     graph, _ = _resolve_graph(session_id)
     return {
         "nodes": graph.number_of_nodes(),

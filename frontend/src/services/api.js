@@ -40,6 +40,15 @@ export async function sessionQuery(sessionId, query) {
 }
 
 // ── Session — Graph ───────────────────────────────────────────────────────────
+export const sessionObservations = async (id, { offset = 0, category, service, start, end } = {}) =>
+  (await client.get(`/sessions/${id}/observations`, { params: { offset, category, service: service || undefined, start: start || undefined, end: end || undefined } })).data
+export const sessionObservation = async (id, observationId) =>
+  (await client.get(`/sessions/${id}/observations/${observationId}`)).data
+export const sessionImpact = async (id, service) =>
+  (await client.get(`/sessions/${id}/impact`, { params: { service } })).data
+export const sessionOverview = async id => (await client.get(`/sessions/${id}/overview`)).data
+export const latestVerification = async id => (await client.get(`/sessions/${id}/verification/latest`)).data
+export const verifyIncident = async id => (await client.post(`/sessions/${id}/verification`)).data
 export const sessionGraph   = async (id) => (await client.get(`/sessions/${id}/graph`)).data
 
 // ── Session — Chat history ────────────────────────────────────────────────────

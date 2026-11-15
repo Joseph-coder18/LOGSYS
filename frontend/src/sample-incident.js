@@ -10,6 +10,7 @@ export const sampleResult = {
   root_cause: 'Database connection pool exhausted',
   summary: 'The user-db pool reached its 100-connection limit. Authentication requests stalled while waiting for a connection, then the API gateway returned 504s.',
   confidence: 'high',
+  suspected_origin: 'user-db',
   affected_services: ['user-db', 'auth-service', 'api-gateway'],
   evidence: [
     { type: 'log', source: 'demo_app.log', snippet: '02:31:00 UTC · user-db · PoolExhaustedError\nConnection acquisition failed. Active: 100. Limit: 100.', score: 0.94 },
@@ -40,8 +41,8 @@ export const sampleGraph = {
     { id: 'demo_app.log', type: 'file' },
   ],
   edges: [
-    { source: 'api-gateway', target: 'auth-service', rel: 'calls' },
-    { source: 'auth-service', target: 'user-db', rel: 'calls' },
+    { source: 'api-gateway', target: 'auth-service', rel: 'depends_on' },
+    { source: 'auth-service', target: 'user-db', rel: 'depends_on' },
     { source: 'demo_app.log', target: 'user-db', rel: 'mentions' },
   ],
 }
@@ -72,3 +73,25 @@ export const samplePrompts = [
     references: [{ view: 'evidence', index: 0, label: 'Pool exhaustion log' }, { view: 'evidence', index: 2, label: 'Gateway 504 log' }, { view: 'timeline', index: 3, label: 'Login recovery event' }],
   },
 ]
+
+const sampleActivity = [
+  ['02:30:30', '02:31:00', { all: 1, anomalies: 1 }],
+  ['02:31:00', '02:31:30', { all: 2, errors: 2 }],
+  ['02:31:30', '02:32:00', { all: 0 }],
+  ['02:32:00', '02:32:30', { all: 0 }],
+  ['02:32:30', '02:33:00', { all: 1 }],
+]
+const sampleTime = time => `2024-01-15T${time}Z`
+
+export const sampleOverview = {
+  counts: { all: 4, errors: 2, anomalies: 1, changes: 0 },
+  modalities: { log: 3, metrics: 1 },
+  services: sampleResult.affected_services,
+  first_at: sampleTime('02:30:30'),
+  last_at: sampleTime('02:32:45'),
+  undated: 0,
+  activity: sampleActivity.map(([start, end, counts]) => ({
+    start: sampleTime(start), end: sampleTime(end),
+    counts: { errors: 0, anomalies: 0, changes: 0, ...counts },
+  })),
+}

@@ -4,7 +4,7 @@ LogMind – Shared Pydantic models used across all services.
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -29,6 +29,67 @@ class IngestResult(BaseModel):
     graph_nodes: int = 0
     graph_edges: int = 0
     errors: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    processed_files: list[str] = Field(default_factory=list)
+    observations_added: int = 0
+    indexing_status: Literal["skipped", "complete", "partial", "failed"] = "skipped"
+
+
+class PoolLimitChange(BaseModel):
+    before: int = Field(gt=0, strict=True)
+    after: int = Field(gt=0, strict=True)
+
+
+class Observation(BaseModel):
+    id: str = ""
+    modality: Literal["log", "metrics", "change"]
+    source_file: str
+    source_position: int
+    service: str | None = None
+    timestamp: str | None = None  # UTC ISO 8601, when the source supplies a timezone
+    original_timestamp: str | None = None
+    summary: str
+    excerpt: str
+    severity: str | None = None
+    change_type: Literal["deployment", "restart", "config_change"] | None = None
+    pool_limit_change: PoolLimitChange | None = None
+    anomalies: list[str] = Field(default_factory=list)
+    metric_values: dict[str, float] = Field(default_factory=dict)
+    anomaly_fields: list[str] = Field(default_factory=list)
+
+
+ObservationFilter = Literal["all", "anomalies", "changes", "errors"]
+
+
+class ObservationCounts(BaseModel):
+    all: int = 0
+    anomalies: int = 0
+    changes: int = 0
+    errors: int = 0
+
+
+class ObservationPage(BaseModel):
+    observations: list[Observation]
+    next_offset: int | None = None
+    counts: ObservationCounts = Field(default_factory=ObservationCounts)
+    services: list[str] = Field(default_factory=list)
+
+
+class ActivityBucket(BaseModel):
+    start: str
+    end: str
+    counts: ObservationCounts
+
+
+class IncidentOverview(BaseModel):
+    revision: str
+    counts: ObservationCounts = Field(default_factory=ObservationCounts)
+    modalities: dict[str, int] = Field(default_factory=dict)
+    services: list[str] = Field(default_factory=list)
+    first_at: str | None = None
+    last_at: str | None = None
+    undated: int = 0
+    activity: list[ActivityBucket] = Field(default_factory=list)
 
 
 class EvidenceItem(BaseModel):
@@ -36,6 +97,10 @@ class EvidenceItem(BaseModel):
     source: str            # filename
     snippet: str
     score: float = 0.0
+    observation_id: str | None = None
+    source_position: int | None = None
+    why: str | None = None
+    timestamp: str | None = None
 
 
 class RCAOutput(BaseModel):
@@ -48,6 +113,50 @@ class RCAOutput(BaseModel):
     evidence: list[EvidenceItem] = Field(default_factory=list)
     agent_trace: list[dict[str, Any]] = Field(default_factory=list)
     answer: str = ""
+
+
+class HypothesisCheck(BaseModel):
+    criterion: str
+    outcome: Literal["supports", "contradicts", "missing"]
+    detail: str
+    observation_id: str | None = None
+
+
+class Hypothesis(BaseModel):
+    label: str
+    service: str
+    score: int
+    checks: list[HypothesisCheck]
+
+
+class NextCheck(BaseModel):
+    instruction: str
+    service: str | None = None
+    start: str | None = None
+    end: str | None = None
+
+
+class VerifiedRCA(RCAOutput):
+    decision: Literal["supported", "ambiguous", "insufficient_evidence"]
+    suspected_origin: str | None = None
+    hypotheses: list[Hypothesis] = Field(default_factory=list)
+    next_check: NextCheck | None = None
+    evidence_revision: str | None = None
+
+
+class ObservationCitation(BaseModel):
+    observation_id: str
+    label: str
+
+
+class ApprovedClaim(BaseModel):
+    text: str
+    citations: list[ObservationCitation] = Field(default_factory=list)
+
+
+class GroundedReply(VerifiedRCA):
+    claims: list[ApprovedClaim] = Field(default_factory=list)
+    answer_mode: Literal["generated", "local"] = "local"
 
 
 # ── Session models (Phase 4A) ─────────────────────────────────────────────────

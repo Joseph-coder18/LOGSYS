@@ -1,0 +1,7 @@
+{
+  "kind": "service_dependencies",
+  "dependencies": [
+    { "caller": "api-gateway", "callee": "auth-service" },
+    { "caller": "auth-service", "callee": "user-db" }
+  ]
+}
