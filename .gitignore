@@ -39,5 +39,7 @@ Thumbs.db
 *.log
 !backend/data/demo/demo_app.log
 
-# Session-local telemetry
-backend/data/sessions/*/observations.sqlite3*
+# ── Session & Incident runtime data (chat history, meta, graph pickles, telemetry)
+backend/data/sessions/
+*.sqlite3*
+*.gpickle
