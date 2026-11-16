@@ -113,6 +113,7 @@ async def _run_ingest(files: list[UploadFile], session_id: str | None = None) ->
     from services import image_analyzer, log_parser, metrics_parser
     from services.graph_store import get_stats
     from services.incident_context import parse_changes, save_dependencies
+    from services.log_ingest import ingest_log_content
     from services.observations import save_observations
     from services.session_store import _session_dir, get_session, update_session
 
@@ -172,6 +173,11 @@ async def _run_ingest(files: list[UploadFile], session_id: str | None = None) ->
             if session_id:
                 result.observations_added += save_observations(_session_dir(session_id), digest, observations)
             _add_file_to_graph(name, modality, chunks, session_id)
+            if modality == "log":
+                try:
+                    ingest_log_content(content.decode("utf-8-sig", errors="replace"), session_id=session_id)
+                except Exception as e:
+                    logger.exception("Failed to ingest log relationships for %s: %s", name, e)
             for index, chunk in enumerate(chunks):
                 if session_id and observations:
                     chunk.metadata["source_digest"] = digest

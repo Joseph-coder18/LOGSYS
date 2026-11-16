@@ -43,7 +43,7 @@ _HTTP_RE      = re.compile(r"\b([45]\d{2})\b")
 _ENDPOINT_RE  = re.compile(r'(?:GET|POST|PUT|DELETE|PATCH)\s+(/[^\s"\']+)', re.IGNORECASE)
 _SERVICE_RE   = re.compile(r'(?:service|component|module|app)[=:\s"\']+([a-zA-Z0-9_-]+)', re.IGNORECASE)
 _DB_RE        = re.compile(
-    r'\b(mysql|postgres(?:ql)?|redis|mongodb|sqlite|elasticsearch|cassandra|dynamodb|user-db|auth-db)\b',
+    r'\b(mysql|postgres(?:ql)?|redis|mongodb|sqlite|elasticsearch|cassandra|dynamodb|user-db|auth-db|[a-zA-Z0-9_-]+-db)\b',
     re.IGNORECASE,
 )
 
@@ -93,17 +93,19 @@ def _parse_line(line: str) -> dict[str, Any]:
         }
 
     # Generic – just grab timestamp + severity if present
+    service_match = _SERVICE_RE.search(line)
+    svc = service_match.group(1) if service_match else ""
     m = _GENERIC_TS.match(line)
     if m:
         return {
             "timestamp": m.group("timestamp"),
             "severity":  m.group("severity").upper(),
-            "service":   "",
+            "service":   svc,
             "message":   line,
             "raw":       line,
         }
 
-    return {"raw": line, "message": line, "severity": "INFO", "timestamp": "", "service": ""}
+    return {"raw": line, "message": line, "severity": "INFO", "timestamp": "", "service": svc}
 
 
 def _extract_entities(lines: list[dict]) -> dict[str, list[str]]:
@@ -113,7 +115,7 @@ def _extract_entities(lines: list[dict]) -> dict[str, list[str]]:
         "exceptions": list(set(_EXCEPTION_RE.findall(combined))),
         "http_codes":  list(set(_HTTP_RE.findall(combined))),
         "endpoints":   list(set(_ENDPOINT_RE.findall(combined))),
-        "services":    list(set(filter(None, [l.get("service", "") for l in lines]))),
+        "services":    list(set(filter(None, [l.get("service", "") for l in lines] + _SERVICE_RE.findall(combined)))),
         "databases":   list(set(_DB_RE.findall(combined))),
     }
 

@@ -1,0 +1,21 @@
+# Demo Logs with Service Relationships
+
+# Format: ISO8601 timestamp | level | request_id | correlation_id | service | message
+
+2026-11-16T10:00:01.123Z INFO request_id=REQ-001 correlation_id=CORR-001 service=frontend   message="Received HTTP GET /api/v1/status"
+2026-11-16T10:00:01.130Z DEBUG request_id=REQ-001 correlation_id=CORR-001 service=frontend   message="Calling service=auth with operation=validate_token" target_service=auth
+2026-11-16T10:00:01.135Z INFO request_id=REQ-002 correlation_id=CORR-001 service=auth       message="Token validation succeeded for user_id=U123"
+2026-11-16T10:00:01.140Z DEBUG request_id=REQ-001 correlation_id=CORR-001 service=frontend   message="Calling service=orders with operation=get_recent" target_service=orders
+2026-11-16T10:00:01.152Z INFO request_id=REQ-003 correlation_id=CORR-001 service=orders     message="Fetched 5 recent orders for user_id=U123"
+2026-11-16T10:00:01.155Z WARN request_id=REQ-003 correlation_id=CORR-001 service=orders      message="Order ID=ORD-789 delayed due to inventory shortage"
+2026-11-16T10:00:01.160Z DEBUG request_id=REQ-003 correlation_id=CORR-001 service=inventory  message="Checking inventory for product_id=PID-456" target_service=inventory
+2026-11-16T10:00:01.170Z ERROR request_id=REQ-004 correlation_id=CORR-001 service=inventory  message="Inventory service timeout after 5000ms"
+2026-11-16T10:00:01.180Z INFO request_id=REQ-003 correlation_id=CORR-001 service=orders     message="Returning partial order list to frontend"
+2026-11-16T10:00:01.200Z INFO request_id=REQ-001 correlation_id=CORR-001 service=frontend   message="Responded to client with status=200 and order data"
+
+# Additional relationship example (GPU node failure)
+2026-11-16T10:01:05.001Z INFO request_id=REQ-005 correlation_id=CORR-002 service=compute    message="Job #78433 started on node-089"
+2026-11-16T10:01:05.500Z WARN request_id=REQ-005 correlation_id=CORR-002 service=compute    message="GPU temperature reached 85°C on node-089"
+2026-11-16T10:01:06.000Z ERROR request_id=REQ-005 correlation_id=CORR-002 service=compute   message="Job #78433 terminated due to out‑of‑memory on node-089"
+2026-11-16T10:01:06.010Z INFO request_id=REQ-005 correlation_id=CORR-002 service=monitor    message="Alert: node-089 marked unhealthy"
+
