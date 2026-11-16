@@ -12,6 +12,7 @@ const statuses = {
   confirmed: { label: 'Confirmed', tone: 'positive' },
   missing: { label: 'Evidence missing', tone: 'warning' },
   generated: { label: 'Model reply', tone: 'positive' },
+  extractive: { label: 'Source-backed reply', tone: 'neutral' },
   local: { label: 'Local reply', tone: 'warning' },
   no_evidence: { label: 'Insufficient evidence', tone: 'warning' },
 }
@@ -26,15 +27,19 @@ const metricLayouts = {
   },
   'Retrieve session observations': {
     agent: 'Incident retrieval',
-    labels: { keyword: 'Keyword matches', semantic: 'Semantic matches', carried: 'Previous sources', distinct: 'Distinct records used' },
+    labels: { keyword: 'Keyword matches', semantic: 'Semantic matches', carried: 'Previous sources', distinct: 'Distinct records used', graph: 'Dependency records added' },
     legacy: /^Keyword search matched (\d+) records\. Semantic search resolved (\d+) records\. Retained (\d+) previous sources\. Supplied (\d+) distinct records\.$/,
+  },
+  'Compose cited answer': {
+    agent: 'Grounded chat',
+    labels: { model_calls: 'Model requests' },
   },
 }
 
 function stepMetrics(step) {
   const layout = metricLayouts[step.action]
   if (!layout || step.agent !== layout.agent) return []
-  const legacy = typeof step.result === 'string' ? step.result.match(layout.legacy) : null
+  const legacy = layout.legacy && typeof step.result === 'string' ? step.result.match(layout.legacy) : null
   return Object.entries(layout.labels)
     .map(([key, label], index) => ({ key, label, value: step.metrics?.[key] ?? (legacy ? Number(legacy[index + 1]) : null) }))
     .filter(entry => Number.isFinite(entry.value))

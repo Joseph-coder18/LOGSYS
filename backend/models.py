@@ -42,9 +42,10 @@ class PoolLimitChange(BaseModel):
 
 class Observation(BaseModel):
     id: str = ""
-    modality: Literal["log", "metrics", "change"]
+    modality: Literal["log", "metrics", "change", "image"]
     source_file: str
     source_position: int
+    source_label: str | None = None
     service: str | None = None
     timestamp: str | None = None  # UTC ISO 8601, when the source supplies a timezone
     original_timestamp: str | None = None
@@ -156,7 +157,7 @@ class ApprovedClaim(BaseModel):
 
 class GroundedReply(VerifiedRCA):
     claims: list[ApprovedClaim] = Field(default_factory=list)
-    answer_mode: Literal["generated", "local"] = "local"
+    answer_mode: Literal["generated", "extractive", "local"] = "local"
 
 
 # ── Session models (Phase 4A) ─────────────────────────────────────────────────

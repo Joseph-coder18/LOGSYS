@@ -161,10 +161,9 @@ async def _run_ingest(files: list[UploadFile], session_id: str | None = None) ->
                 elif modality == "metrics":
                     chunks, observations = metrics_parser.parse_metrics(path)
                 else:
-                    chunk = await run_in_threadpool(image_analyzer.analyze_image, path)
-                    if not chunk.text.strip() or chunk.text.startswith(("[No API key]", "[Vision unavailable]", "[Vision error]")):
-                        raise ValueError("Screenshot analysis was unavailable. Check the vision provider settings and retry.")
-                    chunks, observations = [chunk], []
+                    cache = _session_dir(session_id) / "vision-cache" if session_id else None
+                    chunk, observations = await run_in_threadpool(image_analyzer.analyze_image, path, cache)
+                    chunks = [chunk]
             if not chunks:
                 raise ValueError("No usable telemetry found.")
             if session_id and get_session(session_id) is None:

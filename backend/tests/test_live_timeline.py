@@ -100,6 +100,120 @@ class LiveTimelineTests(IsolatedAsyncioTestCase):
         self.assertIn("upload limit", result["errors"][0])
         self.assertEqual((await self.client.get(self.url)).json()["files"], [])
 
+    async def test_screenshot_retry_persists_valid_panels_without_inventing_timestamps(self):
+        async def run_inline(function, *args):
+            return function(*args)
+
+        image = ("dashboard.png", b"test image bytes")
+        reading = json.dumps({"panels": [{
+            "panel": "API latency", "observation": "Peak of 400 ms",
+            "visible_time_range": "02:30–02:34", "service": None,
+        }]})
+        with (
+            patch("config.GEMINI_API_KEY", "fake"),
+            patch("api.routes.run_in_threadpool", run_inline),
+            patch("services.image_analyzer._read_screenshot", side_effect=["invalid", reading]) as vision,
+        ):
+            failed = (await self.upload(image)).json()
+            self.assertEqual(failed["status"], "failed")
+            self.assertEqual((await self.upload(image)).json()["observations_added"], 1)
+            self.assertEqual((await self.upload(image)).json()["observations_added"], 0)
+            self.assertEqual(vision.call_count, 2)
+        observation, = (await self.client.get(f"{self.url}/observations")).json()["observations"]
+        self.assertEqual(observation["source_label"], "API latency")
+        self.assertEqual(observation["modality"], "image")
+        self.assertEqual(observation["original_timestamp"], "02:30–02:34")
+        self.assertIsNone(observation["timestamp"])
+        self.assertIsNone(observation["service"])
+
+    async def test_dependency_question_retrieves_exact_record_past_keyword_budget(self):
+        from services.incident_retrieval import query_terms, retrieve_question_records
+
+        lines = [
+            {"timestamp": "2024-01-15T02:30:00Z", "service": "orders-db", "level": "INFO",
+             "message": "Connection pool limit: 24 connections"},
+            *[{"timestamp": f"2024-01-15T02:30:0{i}Z", "service": "checkout-api", "level": "INFO",
+               "message": "Connection limit check completed"} for i in range(1, 7)],
+        ]
+        manifest = {"kind": "service_dependencies", "dependencies": [{"caller": "checkout-api", "callee": "orders-db"}]}
+        await self.upload(
+            ("app.log", "\n".join(json.dumps(line) for line in lines).encode()),
+            ("dependencies.json", json.dumps(manifest).encode()),
+        )
+        question = "What is the connection limit for the dependency of checkout-api?"
+        directory = self.root / self.session
+        keywords, *_ = retrieve_question_records(directory, query_terms(question), use_graph=False)
+        graph, _, added, links = retrieve_question_records(directory, query_terms(question))
+        self.assertEqual(len(keywords), len(graph))
+        self.assertTrue(all(event.service == "checkout-api" for event in keywords))
+        self.assertEqual(graph[0].source_position, 1)
+        self.assertEqual(added, 1)
+        self.assertEqual(links[0]["source_file"], "dependencies.json")
+        with (
+            patch("services.grounded_chat.configured_provider", return_value="test"),
+            patch("services.grounded_chat.semantic_retrieval_enabled", return_value=True),
+            patch("services.grounded_chat.retrieve_semantic") as semantic,
+            patch("services.grounded_chat.generate_text") as generate,
+        ):
+            reply = (await self.client.post(f"{self.url}/query", json={"query": question})).json()
+            semantic.assert_not_called()
+            generate.assert_not_called()
+        self.assertEqual(reply["answer_mode"], "extractive")
+        self.assertEqual(reply["agent_trace"][-1]["metrics"]["model_calls"], 0)
+        self.assertTrue(any(
+            "24 connections" in claim["text"] and claim["citations"][0]["observation_id"] == graph[0].id
+            for claim in reply["claims"] if claim["citations"]
+        ))
+        self.assertEqual(reply["decision"], "insufficient_evidence")
+
+    async def test_peak_lookup_uses_full_session_metric_series(self):
+        from config import DEMO_DIR
+        from services.incident_retrieval import query_terms, retrieve_question_records
+
+        metrics = DEMO_DIR / "demo_metrics.json"
+        await self.upload((metrics.name, metrics.read_bytes()))
+        question = "What was the peak database latency for user-db?"
+        directory = self.root / self.session
+        shortlist, *_ = retrieve_question_records(directory, query_terms(question))
+        self.assertTrue(all(event.metric_values.get("db_latency_ms") != 30045 for event in shortlist))
+
+        reply = (await self.client.post(f"{self.url}/query", json={"query": question})).json()
+        self.assertEqual(reply["answer_mode"], "extractive")
+        self.assertEqual(reply["agent_trace"][-1]["metrics"]["model_calls"], 0)
+        self.assertIn("30,045 ms", reply["answer"])
+        citation, = reply["claims"][0]["citations"]
+        row = (await self.client.get(f'{self.url}/observations/{citation["observation_id"]}')).json()
+        self.assertEqual(row["metric_values"]["db_latency_ms"], 30045)
+        self.assertEqual(row["source_position"], 11)
+
+        scoped_question = {"query": "What was the peak database latency for user-db in January?"}
+        scoped_reply = (await self.client.post(f"{self.url}/query", json=scoped_question)).json()
+        self.assertEqual(scoped_reply["answer_mode"], "local")
+
+    async def test_lookup_defers_when_an_older_record_has_a_different_value(self):
+        lines = [
+            {"timestamp": f"2024-01-15T02:30:0{i}Z", "service": "export-worker", "level": "INFO",
+             "message": f"CPU reached {75 if i == 0 else 91} percent"} for i in range(7)
+        ]
+        await self.upload(("app.log", "\n".join(json.dumps(line) for line in lines).encode()))
+        reply = (await self.client.post(f"{self.url}/query", json={
+            "query": "What CPU percentage did export-worker reach?",
+        })).json()
+        self.assertEqual(reply["answer_mode"], "local")
+
+    def test_legacy_provider_failure_never_calls_an_error_a_cause(self):
+        from agents.rca_agent import RCAAgent
+
+        evidence = [{"metadata": {"modality": "log"}, "snippet": "ERROR connection timed out", "score": 0.6}]
+        with (
+            patch("agents.rca_agent.configured_provider", return_value="Gemini"),
+            patch("agents.rca_agent.generate_text", return_value='{"summary":"incomplete JSON schema"}'),
+        ):
+            reply = RCAAgent().run({"query": "What caused this?", "evidence": evidence})["rca"]
+        self.assertEqual(reply.root_cause, "")
+        self.assertEqual(reply.recommendations, [])
+        self.assertEqual(len(reply.evidence), 1)
+
     async def test_context_upload_links_dependencies_to_session_observations(self):
         demo = Path(__file__).resolve().parents[1] / "data" / "demo"
         names = ("demo_app.log", "demo_metrics.json", "context/demo_changes.json", "context/demo_dependencies.json")
@@ -399,6 +513,11 @@ class LiveTimelineTests(IsolatedAsyncioTestCase):
             self.assertTrue(context["observations"][0]["cited_in_previous_reply"])
             self.assertEqual(followup["claims"][-1]["citations"], [source])
             self.assertEqual(followup["agent_trace"][-2]["metrics"]["carried"], 1)
+
+            comparison = await self.client.post(endpoint, json={
+                "query": "What was the peak database latency for billing-api before the queue timeout?",
+            })
+            self.assertEqual(comparison.json()["answer_mode"], "generated")
 
             for invalid in (
                 {"decision": "supported", "claims": [{"text": "Fabricated cause", "sources": ["E1"]}]},

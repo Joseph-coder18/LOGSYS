@@ -6,6 +6,7 @@ const sources = [
   { key: 'log', label: 'Logs', color: 'var(--color-log)' },
   { key: 'metrics', label: 'Metric samples', color: 'var(--color-metrics)' },
   { key: 'change', label: 'Changes', color: 'var(--color-change)' },
+  { key: 'image', label: 'Screenshot panels', color: 'var(--color-image)' },
 ]
 const signals = [
   { key: 'errors', label: 'Errors', color: 'var(--color-error)' },
@@ -44,7 +45,7 @@ function SourceMix({ counts, total }) {
           <span>{integer.format(total)}<small>records</small></span>
         </div>
         <dl className="min-w-0 flex-1 space-y-2">
-          {sources.map(({ key, label, color }) => (
+          {sources.filter(item => item.key !== 'image' || counts.image).map(({ key, label, color }) => (
             <div className="flex items-center justify-between gap-2 text-xs" key={key}>
               <dt className="flex items-center gap-2 text-muted-foreground"><i className="chart-key" style={{ backgroundColor: color }} />{label}</dt>
               <dd className="font-mono">{integer.format(counts[key] || 0)}</dd>
@@ -52,7 +53,7 @@ function SourceMix({ counts, total }) {
           ))}
         </dl>
       </div>
-      <p className="mt-3 text-xs text-muted-foreground">Counts parsed records. Screenshots and dependency manifests are listed under Sources.</p>
+      <p className="mt-3 text-xs text-muted-foreground">Dependency manifests are listed under Sources.</p>
     </Card>
   )
 }

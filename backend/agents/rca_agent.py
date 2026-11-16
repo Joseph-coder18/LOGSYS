@@ -1,8 +1,4 @@
-"""
-LogMind – RCA Agent
-Uses google-genai SDK (new) with gemini-2.0-flash.
-Falls back to template RCA if API key is missing or call fails.
-"""
+"""Legacy Graph RAG synthesis over retrieved evidence and graph context."""
 from __future__ import annotations
 
 import json
@@ -108,45 +104,15 @@ def _extract_json(text: str) -> dict:
     return {}
 
 
-def _template_rca(query: str, evidence: list[dict], graph_nodes: list[dict]) -> dict:
-    """Template-based RCA when no API key is set or LLM call fails."""
-    services = list({
-        e.get("metadata", {}).get("service", "")
-        for e in evidence
-        if e.get("metadata", {}).get("service")
-    })
-    error_lines: list[str] = []
-    for e in evidence:
-        for line in e.get("snippet", "").splitlines():
-            if any(kw in line.upper() for kw in ("ERROR", "CRITICAL", "TIMEOUT", "EXHAUSTED")):
-                error_lines.append(line.strip()[:120])
-    error_lines = error_lines[:5]
-
-    root_cause = (
-        f"Based on retrieved logs and metrics: {error_lines[0]}"
-        if error_lines
-        else "Unable to determine root cause — set GEMINI_API_KEY for LLM analysis."
-    )
+def _evidence_only(evidence: list[dict]) -> dict:
     return {
-        "root_cause":        root_cause,
-        "summary":           f"Analysis based on {len(evidence)} evidence items. {len(error_lines)} error events detected. Services: {', '.join(services) or 'unknown'}.",
-        "timeline":          [line[:100] for line in error_lines],
-        "affected_services": services or ["unknown"],
-        "recommendations": [
-            "Review database connection pool configuration and set appropriate limits.",
-            "Implement circuit breakers on all downstream service calls.",
-            "Add health check probes and auto-restart policies for critical services.",
-            "Set up alerting on connection pool utilization (>70% threshold).",
-        ],
-        "confidence": "medium" if evidence else "low",
-        "answer": f"[Template mode — set GEMINI_API_KEY for full LLM analysis]\n\nQuery: {query}\n\nTop errors:\n" + "\n".join(f"- {l}" for l in error_lines),
+        "summary": f"Retrieved {len(evidence)} evidence items. Root cause remains undetermined.",
+        "answer": "The available analysis did not establish a root cause. Review the retrieved evidence.",
     }
 
 
-# ── Agent ─────────────────────────────────────────────────────────────────────
-
 class RCAAgent(BaseAgent):
-    """Generates structured RCA via Gemini LLM with template fallback."""
+    """Generates structured RCA with an evidence-only fallback."""
 
     def __init__(self):
         super().__init__("rca_agent")
@@ -165,9 +131,9 @@ class RCAAgent(BaseAgent):
         rca_dict: dict = {}
 
         provider = configured_provider()
-        if not provider:
-            self._trace("llm_skip", f"No API key configured for model '{LLM_MODEL}'.")
-            rca_dict = _template_rca(query, evidence, graph_nodes)
+        if not provider or not evidence:
+            self._trace("llm_skip", "No text model configured." if not provider else "No evidence retrieved.")
+            rca_dict = _evidence_only(evidence)
         else:
             prompt = _RCA_PROMPT.format(
                 query=query,
@@ -179,16 +145,17 @@ class RCAAgent(BaseAgent):
                 self._trace("llm_call", f"{provider} {LLM_MODEL} responded ({len(raw_text)} chars)")
 
                 rca_dict = _extract_json(raw_text)
-                if not rca_dict:
-                    self._trace("json_parse_fail", "Could not extract JSON — falling back to template")
-                    rca_dict = _template_rca(query, evidence, graph_nodes)
+                if not {"root_cause", "answer"}.issubset(rca_dict):
+                    self._trace("json_parse_fail", "Missing required output fields. Returned evidence only.")
+                    rca_dict = _evidence_only(evidence)
                 else:
+                    RCAOutput.model_validate(rca_dict)
                     self._trace("json_parse_ok", f"Confidence: {rca_dict.get('confidence', 'unknown')}")
 
             except Exception as exc:
-                logger.error("LLM call failed: %s", exc)
-                self._trace("llm_error", f"Error: {exc} — falling back to template")
-                rca_dict = _template_rca(query, evidence, graph_nodes)
+                logger.warning("Legacy model output unavailable (%s).", type(exc).__name__)
+                self._trace("llm_error", f"{type(exc).__name__}. Returned evidence only.")
+                rca_dict = _evidence_only(evidence)
 
         evidence_items = [
             EvidenceItem(

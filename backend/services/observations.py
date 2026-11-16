@@ -307,6 +307,8 @@ def search_observations(
     terms: list[str],
     limit: int,
     source: tuple[str, str, int, int] | None = None,
+    *,
+    services: list[str] | None = None,
 ) -> list[Observation]:
     """Rank uploaded observations, optionally within a known vector chunk's source span."""
     path = database_path(session_dir)
@@ -318,27 +320,52 @@ def search_observations(
     with closing(sqlite3.connect(path)) as db:
         if not _has_observations(db):
             return []
+        filters = []
+        parameters = []
+        join = ""
         if source:
             has_sources = db.execute(
                 "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'observation_sources'"
             ).fetchone()
             if not has_sources:
                 return []
-            scope = """
-                JOIN observation_sources ON observation_id = observations.id
-                WHERE source_digest = ? AND source_file = ? AND source_position BETWEEN ? AND ?
-            """
-        else:
-            scope = ""
+            join = "JOIN observation_sources ON observation_id = observations.id"
+            filters.append("source_digest = ? AND source_file = ? AND source_position BETWEEN ? AND ?")
+            parameters.extend(source)
+        if services:
+            filters.append(f"lower({_SERVICE}) IN ({', '.join('?' for _ in services)})")
+            parameters.extend(services)
+        where = "WHERE " + " AND ".join(filters) if filters else ""
         rows = db.execute(
             f"""
             SELECT payload FROM (
                 SELECT payload, timestamp, observations.id, ({relevance}) AS relevance
-                FROM observations {scope}
+                FROM observations {join} {where}
             )
             WHERE relevance > 0 OR ?
             ORDER BY relevance DESC, timestamp DESC NULLS LAST, id LIMIT ?
             """,
-            (*terms, *(source or ()), bool(source or not terms), limit),
+            (*terms, *parameters, bool(source or not terms), limit),
         )
         return [Observation.model_validate_json(row[0]) for row in rows]
+
+
+def highest_metric_reading(session_dir: Path, metric: str, service: str) -> Observation | None:
+    """Read the incident-wide peak from typed metrics for one explicitly named service."""
+    path = database_path(session_dir)
+    if not path.exists():
+        return None
+    with closing(sqlite3.connect(path)) as db:
+        if not _has_observations(db):
+            return None
+        field = f"$.metric_values.{metric}"
+        row = db.execute(
+            f"""
+            SELECT payload FROM observations
+            WHERE lower({_SERVICE}) = ? AND json_extract(payload, '$.modality') = 'metrics'
+              AND json_type(payload, ?) IN ('integer', 'real')
+            ORDER BY json_extract(payload, ?) DESC, timestamp ASC NULLS LAST, id LIMIT 1
+            """,
+            (service, field, field),
+        ).fetchone()
+    return Observation.model_validate_json(row[0]) if row else None

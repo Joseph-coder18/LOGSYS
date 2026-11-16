@@ -58,6 +58,7 @@ Use **New incident** to open an uploadable incident. The **Sample incident** in 
 8. Select `user-db` in Graph and inspect **Caller impact**. The latest sample at **02:33:30 UTC** should show **15.2 ms** latency, **0.9%** error rate, and **12 / 20** pool connections. Hover over a latency point to see its time and value. The `auth-service` and `api-gateway` cards should show **Observed impact** and a short failure summary. Expand **Show all fields** on a metric row or **Recent signals** on a caller card. Check that each set of signals is sorted oldest first and that **Open in timeline** jumps to its exact source.
 9. Open **Chat** and ask **“What caused the outage?”**. Expect **Local reply** with citations. Click one. At desktop width the source appears beside the conversation, which remains usable. At a mobile width such as **390 px**, the citation opens a bottom sheet. Try closing it with **Escape** or **Close source**, then reopen it and select **Open in timeline**. The exact row should open with its excerpt expanded. Use **Back to chat** to return to the conversation.
 10. Reload the page and reopen the live incident from the sidebar. Confirm that the saved verdict and chat history are present. Re-upload one of the same files with the same name. The upload should add zero observations and the record count should stay at 34.
+11. In **Chat**, ask **“What was the peak database latency for user-db?”**. Expect **Source-backed reply** with **30,045 ms** at **02:31:00 UTC** and a citation to `demo_metrics.json` record 11. **Agent trace → Grounded chat** should say it computed the peak from the incident's metric records without a provider call. The same question follows this route with Gemini enabled.
 
 ### Check potential impact
 
@@ -105,7 +106,7 @@ Upload it to the same incident. Select **Verify again** and open Graph. The orig
 4. Reopen the live incident that has the four demo files. Ask **“When did auth-service report its first database timeout?”**. Expect a **Model reply** that cites `demo_app.log` line 7 and reports **02:31:01 UTC**. Open the citation and compare the reply with the original line. Existing records are available to keyword retrieval.
 5. Follow up with **“Did that happen before the pool limit changed?”**. The answer should connect the first timeout to the change at **02:29:15 UTC** and say it happened **after** the change. **Agent trace** should group the run into Verification, Incident retrieval, and Grounded chat. Check **Previous sources** under retrieval and expand **Raw result** to see the original message. With a blank Pinecone key, zero semantic matches is expected.
 
-To check screenshot upload, add [demo_dashboard.png](backend/data/demo/demo_dashboard.png) to a test incident while Gemini is enabled. Expect it to appear in **Sources** after vision processing. The telemetry overview counts parsed log, metric, and change records.
+To check screenshot upload, add [demo_dashboard.png](backend/data/demo/demo_dashboard.png) to a test incident while Gemini is enabled. Expect it to appear in **Sources** after vision processing. Timeline should show a **Screenshot** entry for each readable panel and link to its extracted record. A displayed clock range without a date or timezone should remain time uncertain. The telemetry overview counts extracted panels, while the event activity chart excludes undated records.
 
 ## 4. Test semantic retrieval with Pinecone
 
@@ -137,3 +138,15 @@ git diff --check
 ```
 
 The backend suite uses temporary incidents and mocked provider responses. Use sections 2–4 to verify browser interactions and the live provider calls.
+
+For the labelled retrieval checks and the optional live Graph RAG and LLM comparisons, see [EVALUATION.md](EVALUATION.md).
+
+### Clean Docker Compose smoke test
+
+On a host with Docker Compose, run the following from a fresh checkout with a local `.env` file. Use the app through port 3000 for the walkthrough above so the requests exercise the frontend proxy.
+
+```bash
+docker compose up --build --wait
+docker compose ps
+curl -fsS http://localhost:3000/api/health
+```

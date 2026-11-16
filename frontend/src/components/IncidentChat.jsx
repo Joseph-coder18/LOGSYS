@@ -7,6 +7,7 @@ import { samplePrompts } from '@/sample-incident'
 
 const referenceIcons = { evidence: FileText, timeline: Clock3, graph: GitFork }
 const topicIcons = [ScanLine, Activity, ListChecks, ClipboardList]
+const replyLabels = { generated: 'Model reply', extractive: 'Source-backed reply', local: 'Local reply' }
 const livePrompts = [
   { topic: 'What changed?', label: 'What changed before the errors started?' },
   { topic: 'Which services saw errors?', label: 'Which services saw errors, and when?' },
@@ -32,7 +33,7 @@ function Reply({ content, onReference, onObservation }) {
     <>
       {content?.answer_mode && (
         <Badge className="mb-2" tone={content.answer_mode === 'generated' ? 'positive' : 'neutral'}>
-          {content.answer_mode === 'generated' ? 'Model reply' : 'Local reply'}
+          {replyLabels[content.answer_mode] || replyLabels.local}
         </Badge>
       )}
       {claims.length ? (

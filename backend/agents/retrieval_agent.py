@@ -11,11 +11,12 @@ from __future__ import annotations
 
 import re
 import logging
+from math import isfinite
 from pathlib import Path
 from typing import Any
 
 from agents.base_agent import BaseAgent
-from config import DEMO_DIR
+from config import DEMO_DIR, EMBEDDING_DIM
 
 logger = logging.getLogger("logmind.agent.retrieval")
 
@@ -108,7 +109,8 @@ class RetrievalAgent(BaseAgent):
 
         # ── Step 2: Pinecone vector search (scoped to session namespace) ────
         from services.pinecone_store import query as pinecone_query
-        matches = pinecone_query(qvec, top_k=5, namespace=session_id)
+        valid_vector = len(qvec) == EMBEDDING_DIM and any(qvec) and all(isfinite(value) for value in qvec)
+        matches = pinecone_query(qvec, top_k=5, namespace=session_id) if valid_vector else []
         self._trace("pinecone_search", f"Retrieved {len(matches)} vector matches")
 
         # ── Step 3: Demo fallback for legacy global queries ─────────────────
@@ -135,14 +137,14 @@ class RetrievalAgent(BaseAgent):
                     if s:
                         entities.add(s)
 
-        self._trace("entity_extraction", f"Seed entities: {list(entities)[:10]}")
+        self._trace("entity_extraction", f"Seed entities: {sorted(entities)[:10]}")
 
         # ── Step 5: Knowledge graph traversal (scoped to session) ─────────
         from services.graph_store import get_neighbors, get_graph_json
         graph_nodes: list[dict[str, Any]] = []
 
         if entities:
-            for entity in list(entities)[:5]:
+            for entity in sorted(entities)[:5]:
                 neighbors = get_neighbors(entity, depth=2, session_id=session_id)
                 graph_nodes.extend(neighbors)
         else:

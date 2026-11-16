@@ -40,7 +40,7 @@ export default function TelemetryTimeline({ observations, anchored = true, selec
                 : 'Time uncertain'}
             </span>
             <Badge tone={errorLevels.has(event.severity) ? 'error' : event.modality}>
-              {changeLabels[event.change_type] || (event.modality === 'log' ? event.severity || 'Log' : 'Metrics')}
+              {changeLabels[event.change_type] || (event.modality === 'log' ? event.severity || 'Log' : event.modality === 'image' ? 'Screenshot' : 'Metrics')}
             </Badge>
             {event.service && <span className="source-name">{event.service}</span>}
             {event.anomalies.length > 0 && <Badge tone="warning">Anomaly</Badge>}
@@ -48,10 +48,10 @@ export default function TelemetryTimeline({ observations, anchored = true, selec
           <p>{event.modality === 'metrics' ? <MetricValues event={event} /> : event.summary}</p>
           <details className="mt-1.5 min-w-0" open={!anchored || event.id === selectedId ? true : undefined}>
             <summary className="text-xs text-primary break-all">
-              {event.source_file} · {event.modality === 'log' ? 'line' : 'record'} {event.source_position}
+              {event.source_file} · {event.source_label || `${event.modality === 'log' ? 'line' : 'record'} ${event.source_position}`}
             </summary>
             {!event.timestamp && event.original_timestamp && (
-              <p>Source timestamp: {event.original_timestamp}</p>
+              <p>{event.modality === 'image' ? 'Displayed time range' : 'Source timestamp'} · {event.original_timestamp}</p>
             )}
             <pre className="mt-2 whitespace-pre-wrap break-all rounded-md bg-background p-2 text-xs">{event.excerpt}</pre>
             {event.anomalies.length > 0 && (
