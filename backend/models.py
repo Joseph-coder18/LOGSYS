@@ -186,3 +186,51 @@ class ChatEntry(BaseModel):
 class CreateSessionRequest(BaseModel):
     name: str | None = None     # optional custom name; auto-generated if omitted
 
+
+# ── LogMind-X models (feature/logmind-x-full) ────────────────────────────────
+
+class TemporalEdgeCounts(BaseModel):
+    """Returned by POST /sessions/{id}/finalize — counts of each new edge type."""
+    precedes:      int = 0
+    propagates_to: int = 0
+    supports:      int = 0
+    contradicts:   int = 0
+
+
+class ClaimVerification(BaseModel):
+    """Gate decision and per-dimension scores for a causal claim."""
+    gate: Literal["accept", "downgrade", "reject"]
+    scores: dict[str, float]   # keys: temporal, graph, cross_modal, contradiction, completeness
+    overall: float
+    message: str
+    checks: list[HypothesisCheck] = Field(default_factory=list)
+
+
+class RemediationAction(BaseModel):
+    """A single safe, reversible remediation suggestion."""
+    id:                    str = Field(default_factory=_new_id)
+    action_type:           str   # "rollback" | "revert_config" | "disable_flag" | "generic"
+    description:           str
+    reversible:            bool = True
+    rollback_plan:         str
+    expected_signal_change: str
+    confidence:            float = 0.0   # 0–1; fraction of symptom nodes reduced
+
+
+class RemediationResult(BaseModel):
+    """Returned by POST /sessions/{id}/remediate."""
+    causal_node_id:  str
+    actions:         list[RemediationAction] = Field(default_factory=list)
+    symptom_before:  int = 0
+    symptom_after:   int = 0
+
+
+class NextStepResult(BaseModel):
+    """Returned by GET /sessions/{id}/next-step."""
+    abstain:           bool = False
+    abstain_reason:    str = ""
+    suggested_modality: str | None = None   # "log" | "metrics" | "change" | "image"
+    suggested_service:  str | None = None
+    instruction:       str = ""
+    deficits:          dict[str, list[str]] = Field(default_factory=dict)
+

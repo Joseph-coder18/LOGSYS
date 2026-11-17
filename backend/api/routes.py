@@ -32,7 +32,7 @@ from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
-from models import GroundedReply, BaseChunk, IngestResult, RCAOutput, Session, CreateSessionRequest, Observation, ObservationFilter, ObservationPage, IncidentOverview, VerifiedRCA
+from models import GroundedReply, BaseChunk, IngestResult, RCAOutput, Session, CreateSessionRequest, Observation, ObservationFilter, ObservationPage, IncidentOverview, VerifiedRCA, TemporalEdgeCounts, ClaimVerification, RemediationResult, NextStepResult
 
 logger = logging.getLogger("logmind.api")
 
@@ -429,6 +429,103 @@ async def clear_session_chat(session_id: str):
         raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found.")
     _clear(session_id)
     return {"cleared": True, "session_id": session_id}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# LogMind-X endpoints (feature/logmind-x-full)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ── Objective 1 – Temporal Evidence Graph ─────────────────────────────────────
+
+@router.post("/sessions/{session_id}/finalize", response_model=TemporalEdgeCounts, tags=["LogMind-X"])
+async def finalize_session(session_id: str):
+    """
+    Post-ingest step: build temporal edges (precedes / propagates_to / supports / contradicts)
+    from the observation nodes in this session's graph.
+    Call once after all files have been uploaded to the session.
+    """
+    from services.session_store import get_session as _get
+    if _get(session_id) is None:
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found.")
+    try:
+        from services.temporal_edges import build_temporal_edges
+        counts = await run_in_threadpool(build_temporal_edges, session_id)
+        return TemporalEdgeCounts(**counts)
+    except Exception as exc:
+        logger.exception("Temporal edge building failed for session %s", session_id)
+        raise HTTPException(status_code=500, detail=f"Could not build temporal edges: {exc}") from exc
+
+
+# ── Objective 2 – Contradiction-Aware Hypothesis Verification ─────────────────
+
+class VerifyClaimRequest(BaseModel):
+    source_service: str
+    target_service: str
+    relation: str = "propagates_to"
+
+
+@router.post("/sessions/{session_id}/verify-claim", response_model=ClaimVerification, tags=["LogMind-X"])
+async def verify_claim(session_id: str, request: VerifyClaimRequest):
+    """
+    Score a causal claim (serviceA → serviceB) against the temporal evidence graph.
+    Returns a gate decision (accept / downgrade / reject) and per-dimension scores.
+    """
+    from services.session_store import get_session as _get
+    if _get(session_id) is None:
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found.")
+    try:
+        from services.hypothesis import verify_claim as _verify
+        result = await run_in_threadpool(
+            _verify, session_id, request.source_service, request.target_service, request.relation
+        )
+        return result
+    except Exception as exc:
+        logger.exception("Claim verification failed for session %s", session_id)
+        raise HTTPException(status_code=500, detail=f"Could not verify claim: {exc}") from exc
+
+
+# ── Objective 3 – Adaptive Investigation & Safe Abstention ────────────────────
+
+@router.get("/sessions/{session_id}/next-step", response_model=NextStepResult, tags=["LogMind-X"])
+async def next_investigation_step(session_id: str):
+    """
+    Detect evidence deficits for this session and suggest the next modality to upload.
+    Returns abstain=True when competing hypotheses cannot be discriminated.
+    """
+    from services.session_store import get_session as _get
+    if _get(session_id) is None:
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found.")
+    try:
+        from services.investigation_policy import suggest_next
+        result = await run_in_threadpool(suggest_next, session_id)
+        return result
+    except Exception as exc:
+        logger.exception("Investigation policy failed for session %s", session_id)
+        raise HTTPException(status_code=500, detail=f"Could not compute next step: {exc}") from exc
+
+
+# ── Objective 4 – Counterfactual Remediation Validator ───────────────────────
+
+class RemediateRequest(BaseModel):
+    causal_node_id: str
+
+
+@router.post("/sessions/{session_id}/remediate", response_model=RemediationResult, tags=["LogMind-X"])
+async def remediate(session_id: str, request: RemediateRequest):
+    """
+    Simulate reversing/removing the suspected causal node and return safe, reversible actions.
+    All actions are labelled (Simulated) — no real deployment changes are made.
+    """
+    from services.session_store import get_session as _get
+    if _get(session_id) is None:
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found.")
+    try:
+        from services.remediation import suggest_remediation
+        result = await run_in_threadpool(suggest_remediation, session_id, request.causal_node_id)
+        return result
+    except Exception as exc:
+        logger.exception("Remediation failed for session %s", session_id)
+        raise HTTPException(status_code=500, detail=f"Could not compute remediation: {exc}") from exc
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
