@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import {
   drawGraphEdgeLabel,
   drawGraphNode,
+  edgeColors,
   fitGraph,
   graphInset,
   impactDistances,
@@ -67,17 +68,22 @@ export default function InvestigationGraph({ graph, referenceNode, focusSelectio
   const [selectedId, setSelectedId] = useState(() => serviceNode(graph, referenceNode)?.id || referenceNode)
   const [hoveredId, setHoveredId] = useState(null)
   const [motion, setMotion] = useState(false)
-  const dependencies = useMemo(() => graph.edges.filter(edge => edge.rel === 'depends_on'), [graph])
+  const dependencies = useMemo(() => graph.edges.filter(edge => edge.rel === 'depends_on' || edge.rel === 'propagates_to'), [graph])
+  const temporalEdges = useMemo(() => graph.edges.filter(edge => ['precedes', 'supports', 'contradicts', 'propagates_to'].includes(edge.rel)), [graph])
   const origin = serviceNode(graph, suspectedOrigin)?.id
   const distances = useMemo(() => impactDistances(dependencies, origin), [dependencies, origin])
   const hasImpact = distances.size > 1
-  const activeScope = scope === 'all' || (scope === 'impact' && hasImpact) || (scope === 'dependencies' && dependencies.length)
-    ? scope : hasImpact ? 'impact' : dependencies.length ? 'dependencies' : 'all'
+  const activeScope = scope === 'all' || scope === 'temporal' || (scope === 'impact' && hasImpact) || (scope === 'dependencies' && dependencies.length)
+    ? scope : hasImpact ? 'impact' : temporalEdges.length ? 'temporal' : dependencies.length ? 'dependencies' : 'all'
   const isImpact = activeScope === 'impact'
   const vertical = width < 510
   const height = vertical ? 418 : 328
   const { nodes, edges } = useMemo(() => {
     if (activeScope === 'all') return { nodes: graph.nodes, edges: graph.edges }
+    if (activeScope === 'temporal') {
+      const endpoints = new Set(temporalEdges.flatMap(edge => [edge.source, edge.target]))
+      return { nodes: graph.nodes.filter(node => endpoints.has(node.id)), edges: temporalEdges }
+    }
     if (isImpact) {
       // Use caller propagation direction in the impact view and keep source provenance.
       const edges = dependencies
@@ -87,7 +93,7 @@ export default function InvestigationGraph({ graph, referenceNode, focusSelectio
     }
     const endpoints = new Set(dependencies.flatMap(edge => [edge.source, edge.target]))
     return { nodes: graph.nodes.filter(node => endpoints.has(node.id)), edges: dependencies }
-  }, [graph, activeScope, isImpact, dependencies, distances])
+  }, [graph, activeScope, isImpact, dependencies, distances, temporalEdges])
 
   // The renderer mutates nodes and links while simulating.
   const data = useMemo(() => {
@@ -168,18 +174,17 @@ export default function InvestigationGraph({ graph, referenceNode, focusSelectio
 
   return (
     <>
-      {dependencies.length > 0 && (
+      {(dependencies.length > 0 || temporalEdges.length > 0) && (
         <div className="mb-2 flex flex-wrap gap-2" role="group" aria-label="Graph view">
           {hasImpact && <Button size="sm" variant={isImpact ? 'default' : 'outline'} aria-pressed={isImpact} onClick={() => setScope('impact')}>Impact path</Button>}
-          <Button size="sm" variant={activeScope === 'dependencies' ? 'default' : 'outline'} aria-pressed={activeScope === 'dependencies'} onClick={() => setScope('dependencies')}>Dependency graph</Button>
+          {temporalEdges.length > 0 && <Button size="sm" variant={activeScope === 'temporal' ? 'default' : 'outline'} aria-pressed={activeScope === 'temporal'} onClick={() => setScope('temporal')}>Temporal Evidence ({temporalEdges.length})</Button>}
+          {dependencies.length > 0 && <Button size="sm" variant={activeScope === 'dependencies' ? 'default' : 'outline'} aria-pressed={activeScope === 'dependencies'} onClick={() => setScope('dependencies')}>Dependency graph</Button>}
           <Button size="sm" variant={activeScope === 'all' ? 'default' : 'outline'} aria-pressed={activeScope === 'all'} onClick={() => setScope('all')}>All relationships</Button>
         </div>
       )}
-      {dependencies.length > 0 && (
-        <p id="graph-direction" className="mb-2 text-xs text-muted-foreground">
-          {isImpact ? 'Arrows follow impact from the origin to its callers.' : 'Dependency arrows point from caller to target.'}
-        </p>
-      )}
+      <p id="graph-direction" className="mb-2 text-xs text-muted-foreground">
+        {activeScope === 'temporal' ? 'Temporal edges: precedes (amber), supports (emerald), contradicts (red), propagates to (indigo).' : isImpact ? 'Arrows follow impact from the origin to its callers.' : 'Dependency arrows point from caller to target.'}
+      </p>
       <div className="graph-frame" ref={frame} role="region" aria-label="Incident relationship graph" aria-describedby={dependencies.length ? 'graph-direction' : undefined} style={{ height: height + 2 }}>
         {origin && (
           <ul className="graph-legend" aria-label="Node status legend">
@@ -202,8 +207,8 @@ export default function InvestigationGraph({ graph, referenceNode, focusSelectio
             linkLabel={() => ''}
             nodePointerAreaPaint={paintNodeTarget}
             enableNodeDrag={!isImpact}
-            linkColor={edge => edge.rel === 'depends_on' ? '#98b9ff' : '#7185a6'}
-            linkWidth={edge => edge.rel === 'depends_on' ? 1.8 : 1}
+            linkColor={edge => edgeColors[edge.rel] || (edge.rel === 'depends_on' ? '#98b9ff' : '#7185a6')}
+            linkWidth={edge => ['precedes', 'supports', 'contradicts', 'propagates_to', 'depends_on'].includes(edge.rel) ? 1.8 : 1}
             linkDirectionalArrowLength={9}
             linkDirectionalArrowRelPos={0.94}
             linkCanvasObjectMode={() => 'after'}

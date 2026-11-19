@@ -65,6 +65,14 @@ def build_temporal_edges(session_id: str) -> dict[str, int]:
 
     counts = {"precedes": 0, "propagates_to": 0, "supports": 0, "contradicts": 0}
 
+    # ── 1. propagates_to ─────────────────────────────────────────────────────
+    # Promote existing depends_on edges that have a timestamp to propagates_to
+    # so the hypothesis engine can distinguish structural from causal flow.
+    for src, dst, attrs in list(graph.edges(data=True)):
+        if attrs.get("rel") == "depends_on" and "timestamp" in attrs:
+            graph[src][dst]["rel"] = "propagates_to"
+            counts["propagates_to"] += 1
+
     # Collect only nodes that have a timestamp (observation-type nodes)
     timed_nodes: list[tuple[str, dict]] = [
         (nid, attrs)
@@ -73,13 +81,14 @@ def build_temporal_edges(session_id: str) -> dict[str, int]:
     ]
 
     if not timed_nodes:
-        logger.info("No timed nodes found for session %s — skipping temporal edges.", session_id)
+        logger.info("No timed nodes found for session %s — skipping observation-level temporal edges.", session_id)
+        _persist(graph, session_id)
         return counts
 
     # Sort all timed nodes globally by timestamp
     timed_nodes.sort(key=lambda x: _ts(x[1]))  # type: ignore[arg-type]
 
-    # ── 1. precedes ──────────────────────────────────────────────────────────
+    # ── 2. precedes ──────────────────────────────────────────────────────────
     # For each service, connect consecutive observation events in time order.
     by_service: dict[str, list[tuple[str, dict]]] = {}
     for nid, attrs in timed_nodes:
@@ -97,22 +106,6 @@ def build_temporal_edges(session_id: str) -> dict[str, int]:
                                timestamp=_ts(nodes[i][1]),
                                service=svc)
                 counts["precedes"] += 1
-
-    # ── 2. propagates_to ─────────────────────────────────────────────────────
-    # Promote existing depends_on edges that have a timestamp to propagates_to
-    # so the hypothesis engine can distinguish structural from causal flow.
-    # (We add propagates_to as a *parallel* edge so depends_on still works.)
-    edges_to_add: list[tuple[str, str, dict]] = []
-    for src, dst, attrs in graph.edges(data=True):
-        if attrs.get("rel") == "depends_on" and "timestamp" in attrs:
-            if not graph.has_edge(src, dst):  # never duplicate key
-                edges_to_add.append((src, dst, {
-                    "rel": "propagates_to",
-                    "timestamp": attrs["timestamp"],
-                }))
-                counts["propagates_to"] += 1
-    for src, dst, eattrs in edges_to_add:
-        graph.add_edge(src, dst, **eattrs)
 
     # ── 3. supports ──────────────────────────────────────────────────────────
     # Two nodes from different modalities that share the same correlation_id or
@@ -132,7 +125,14 @@ def build_temporal_edges(session_id: str) -> dict[str, int]:
             src, dst = aid, bid
         else:
             src, dst = bid, aid
-        if not graph.has_edge(src, dst):
+
+        if graph.has_edge(dst, src) and graph[dst][src].get("rel") == "precedes":
+            graph.remove_edge(dst, src)
+            counts["precedes"] = max(0, counts["precedes"] - 1)
+        elif graph.has_edge(src, dst) and graph[src][dst].get("rel") == "precedes":
+            counts["precedes"] = max(0, counts["precedes"] - 1)
+
+        if not graph.has_edge(src, dst) or graph[src][dst].get("rel") != "supports":
             graph.add_edge(src, dst, rel="supports",
                            correlation_id=a_key,
                            gap_s=round(gap, 2))
@@ -155,7 +155,14 @@ def build_temporal_edges(session_id: str) -> dict[str, int]:
             gap = abs((_ts(e_attrs) or 0) - (_ts(m_attrs) or 0))
             if gap > CONTRADICT_WINDOW_S:
                 continue
-            if not graph.has_edge(eid, mid):
+
+            if graph.has_edge(mid, eid) and graph[mid][eid].get("rel") == "precedes":
+                graph.remove_edge(mid, eid)
+                counts["precedes"] = max(0, counts["precedes"] - 1)
+            elif graph.has_edge(eid, mid) and graph[eid][mid].get("rel") == "precedes":
+                counts["precedes"] = max(0, counts["precedes"] - 1)
+
+            if not graph.has_edge(eid, mid) or graph[eid][mid].get("rel") != "contradicts":
                 graph.add_edge(eid, mid, rel="contradicts",
                                service=_service(e_attrs),
                                gap_s=round(gap, 2))

@@ -9,6 +9,19 @@ const nodeColors = {
   database: '#8dd9ec',
   file: '#bfc0ff',
   error: '#ff9ca7',
+  ObservationLog: '#a78bfa',
+  Deployment: '#f43f5e',
+  ConfigChange: '#fb923c',
+  Metric: '#38bdf8',
+}
+
+export const edgeColors = {
+  depends_on: '#98b9ff',
+  propagates_to: '#818cf8',
+  precedes: '#f59e0b',
+  supports: '#10b981',
+  contradicts: '#ef4444',
+  has_observation: '#64748b',
 }
 
 export const relationshipLabel = (edge, impact = false) => {

@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Alert, Badge, Card, Skeleton } from '@/components/ui/surfaces'
 import { InfoTooltip } from '@/components/ui/tooltip'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { sessionChat, latestVerification, sessionGraph, sessionIngest, sessionObservation, sessionObservations, sessionOverview, sessionQuery, verifyIncident } from '@/services/api'
+import { sessionChat, latestVerification, sessionGraph, sessionIngest, sessionObservation, sessionObservations, sessionOverview, sessionQuery, verifyIncident, finalizeSession } from '@/services/api'
 import { SAMPLE_ID, sampleGraph, sampleOverview, samplePrompts, sampleResult } from '@/sample-incident'
 import IncidentSources from './IncidentSources'
 import IncidentChat from './IncidentChat'
@@ -133,6 +133,11 @@ export default function Investigation({ incident, connected, onSessionsChange, o
     if (response.files_processed) {
       ++verificationRequest.current
       setVerifying(false)
+      try {
+        await finalizeSession(id)
+      } catch (err) {
+        console.warn('Finalize session temporal edges failed:', err)
+      }
       const updates = await Promise.allSettled([
         sessionGraph(id).then(setGraph),
         sessionOverview(id).then(setOverview),

@@ -55,6 +55,12 @@ export const sessionGraph   = async (id) => (await client.get(`/sessions/${id}/g
 export const sessionChat    = async (id) => (await client.get(`/sessions/${id}/chat`)).data
 export const clearChat      = async (id) => (await client.delete(`/sessions/${id}/chat`)).data
 
+// ── LogMind-X (Phase 1–4) ────────────────────────────────────────────────────
+export const finalizeSession       = async (id) => (await client.post(`/sessions/${id}/finalize`)).data
+export const verifyClaim           = async (id, claim) => (await client.post(`/sessions/${id}/verify-claim`, claim)).data
+export const nextInvestigationStep = async (id) => (await client.get(`/sessions/${id}/next-step`)).data
+export const suggestRemediation    = async (id, causalNodeId) => (await client.post(`/sessions/${id}/remediate`, { causal_node_id: causalNodeId })).data
+
 // ── Global (backward-compat) ──────────────────────────────────────────────────
 export async function ingestFiles(files) {
   const form = new FormData()

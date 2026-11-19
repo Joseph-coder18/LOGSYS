@@ -148,6 +148,10 @@ See [`.env.example`](.env.example) for the full list. Required keys:
 
 ---
 
+## Temporal Evidence Graph (Phase 1)
+
+Phase 1 introduced temporal edge types (`precedes`, `propagates_to`, `supports`, `contradicts`) and UI visualisation. The backend now generates `TemporalEdgeCounts`, the API `/sessions/{id}/finalize` returns them, and the frontend colours these edges and provides a legend.
+
 ## Project Structure
 
 ```

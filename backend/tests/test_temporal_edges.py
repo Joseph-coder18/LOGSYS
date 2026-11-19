@@ -160,7 +160,18 @@ def test_contradicts_different_services():
     assert counts["contradicts"] == 0
 
 
-# ── Tests: empty graph ────────────────────────────────────────────────────────
+# ── Tests: empty graph & propagates_to ────────────────────────────────────────
+
+def test_propagates_to_promotion():
+    """Existing depends_on edge with a timestamp is promoted to propagates_to."""
+    _FAKE_GRAPH.add_node("auth", type="service", service="auth")
+    _FAKE_GRAPH.add_node("orders", type="service", service="orders")
+    _FAKE_GRAPH.add_edge("auth", "orders", rel="depends_on", timestamp=1000.0)
+
+    counts = build_temporal_edges("test-session")
+    assert counts["propagates_to"] == 1
+    assert _FAKE_GRAPH["auth"]["orders"]["rel"] == "propagates_to"
+
 
 def test_empty_graph_returns_zero_counts():
     counts = build_temporal_edges("test-session")
