@@ -37,13 +37,15 @@ export default function TelemetryTimeline({ observations, anchored = true, selec
             <span className="timeline-time">
               {event.timestamp
                 ? `${event.timestamp.slice(0, 10)} ${event.timestamp.slice(11, 19)} UTC`
-                : 'Time uncertain'}
+                : event.interval_start && event.interval_end ? `${event.interval_start.slice(0, 10)} ${event.interval_start.slice(11, 19)}–${event.interval_end.slice(11, 19)} UTC (range)` : 'Time uncertain'}
             </span>
             <Badge tone={errorLevels.has(event.severity) ? 'error' : event.modality}>
               {changeLabels[event.change_type] || (event.modality === 'log' ? event.severity || 'Log' : event.modality === 'image' ? 'Screenshot' : 'Metrics')}
             </Badge>
             {event.service && <span className="source-name">{event.service}</span>}
             {event.anomalies.length > 0 && <Badge tone="warning">Anomaly</Badge>}
+            {event.stream_id && <Badge tone="neutral">Stream · {event.stream_id}</Badge>}
+            {event.interval_start && <Badge tone="neutral">Interval evidence</Badge>}
           </div>
           <p>{event.modality === 'metrics' ? <MetricValues event={event} /> : event.summary}</p>
           <details className="mt-1.5 min-w-0" open={!anchored || event.id === selectedId ? true : undefined}>
@@ -53,6 +55,8 @@ export default function TelemetryTimeline({ observations, anchored = true, selec
             {!event.timestamp && event.original_timestamp && (
               <p>{event.modality === 'image' ? 'Displayed time range' : 'Source timestamp'} · {event.original_timestamp}</p>
             )}
+            {event.quality_warnings?.length > 0 && <ul className="my-2 text-xs text-warning">{event.quality_warnings.map(warning => <li key={warning}>{warning}</li>)}</ul>}
+            {event.provenance_group && <p className="my-2 text-xs text-muted-foreground">Shared stream representations count as one source of corroboration. {event.stream_id ? `Declared stream: ${event.stream_id}` : 'No telemetry stream was declared.'}</p>}
             <pre className="mt-2 whitespace-pre-wrap break-all rounded-md bg-background p-2 text-xs">{event.excerpt}</pre>
             {event.anomalies.length > 0 && (
               <ul className="mt-1.5 text-xs text-warning">{event.anomalies.map(anomaly => <li key={anomaly}>{anomaly}</li>)}</ul>

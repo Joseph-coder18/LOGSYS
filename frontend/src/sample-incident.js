@@ -8,17 +8,17 @@ export const sampleIncident = {
 
 export const sampleResult = {
   root_cause: 'Database connection pool exhausted',
-  summary: 'The user-db pool reached its 100-connection limit. Authentication requests stalled while waiting for a connection, then the API gateway returned 504s.',
+  summary: 'The user-db pool reached its 20-connection limit. Authentication requests stalled while waiting for a connection, then the API gateway returned 504s.',
   confidence: 'high',
   suspected_origin: 'user-db',
   affected_services: ['user-db', 'auth-service', 'api-gateway'],
   evidence: [
-    { type: 'log', source: 'demo_app.log', snippet: '02:31:00 UTC · user-db · PoolExhaustedError\nConnection acquisition failed. Active: 100. Limit: 100.', score: 0.94 },
-    { type: 'metrics', source: 'demo_metrics.json', snippet: '02:31:00 UTC · 100 active database connections\nRequest error rate reached 89.3%.', score: 0.89 },
+    { type: 'log', source: 'demo_app.log', snippet: '02:31:00 UTC · user-db · PoolExhaustedError\nConnection acquisition failed. Active: 20. Limit: 20.', score: 0.94 },
+    { type: 'metrics', source: 'demo_metrics.json', snippet: '02:31:00 UTC · 20 active database connections\nRequest error rate reached 89.3%.', score: 0.89 },
     { type: 'log', source: 'demo_app.log', snippet: '02:31:02 UTC · api-gateway · HTTP 504\nPOST /login timed out waiting for auth-service.', score: 0.82 },
   ],
   timeline: [
-    '02:30:30 · Connection wait increases as pool utilization reaches 88%.',
+    '02:30:30 · Connection wait increases while the pool is at its 20-connection limit.',
     '02:31:00 · The user-db pool reaches its connection limit.',
     '02:31:02 · Gateway returns 504 for the login request.',
     '02:32:45 · Login requests begin succeeding again.',
@@ -69,7 +69,7 @@ export const samplePrompts = [
   {
     topic: 'Draft a handoff',
     label: 'Draft an incident handoff.',
-    reply: 'Impact: Login requests returned 504s around 02:31 UTC.\nObserved cause: user-db reached its 100-connection limit.\nRecovery: Login requests resumed at 02:32:45 UTC in the sample logs.\nNext check: Confirm the pool has normalized and inspect long-held connections.',
+    reply: 'Impact: Login requests returned 504s around 02:31 UTC.\nObserved cause: user-db reached its 20-connection limit.\nRecovery: Login requests resumed at 02:32:45 UTC in the sample logs.\nNext check: Confirm the pool has normalized and inspect long-held connections.',
     references: [{ view: 'evidence', index: 0, label: 'Pool exhaustion log' }, { view: 'evidence', index: 2, label: 'Gateway 504 log' }, { view: 'timeline', index: 3, label: 'Login recovery event' }],
   },
 ]

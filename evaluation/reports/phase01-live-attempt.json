@@ -1,0 +1,1512 @@
+{
+  "run": {
+    "at": "2026-11-19T11:31:53.229312+00:00",
+    "python": "3.12.3",
+    "git_commit": "bd8e1d9886e0c4f82e33637eb734c617bf93a634",
+    "git_dirty": true,
+    "runtime_source_sha256": {
+      "config.py": "5885bee6b00d34a563e579184102c6a3fb4986f86b2a33953051422c20f7c4a3",
+      "evaluate.py": "c26e497836274587344afc473bd04fe9ce2e544226d4c877ef34f1c5244ded93",
+      "models.py": "3621d4d05b24e2df574db598bbd5b062504e8744168cd1bd701d1fb2096128c9",
+      "main.py": "57c818608d5398abadaf4e3e88d7cb04e4e38b7ec6acd20f478156b5399db5ba",
+      "services/__init__.py": "d8089dccadf523cf50df248939405dbb2981462a01e429b9085c2b81b8ddd87d",
+      "services/observations.py": "762095e860f538fa8c31958b87765d9320045f8935a3ca8ad87062156fde2d6c",
+      "services/metric_units.py": "a9914859bdff105bf156ba1085114bd2660c61e6f4151b67b6339b3ddfe02762",
+      "services/storage_lock.py": "26971275b69d39c01c80d277b8d6dfc46faff02f2cdac50a707e3f521d4f321a",
+      "services/temporal_edges.py": "75c7d37b005289e591c7142665d67b91c0b2764c8dab2b2357382456c31075e4",
+      "services/log_ingest.py": "f2698cf9bfbb279c64b568859b46221300e9221063c477deb179c3eb5e7c2f93",
+      "services/text_generation.py": "5da43373aede7d4fafda53ae8fce8ee85b62a80ae995058c25bb12672085e3c9",
+      "services/embedder.py": "622034f5ef31227af04e1974d936783701fb203b47466068a150316e086c65aa",
+      "services/grounded_chat.py": "a71ca9207367c4a3997e667c9fcdcd67a2049f6f7cc2ad71b3a72dac595aaac1",
+      "services/fact_lookup.py": "3e2d21ef6a372c89c6c921cb222be1c9356b4999e6280329a42bbceaf69f6487",
+      "services/image_analyzer.py": "c5b25df8a797f2cb8bf8b978e39a26fc1a3d076cbd1d32daa3d0c1af27507474",
+      "services/metrics_parser.py": "632c1a3bd4ef15b1930c7abfa35cecf94faf459878a4c3884c4ad4ead7352c99",
+      "services/log_parser.py": "c2615841d0c71d12b346e250313079e69c522981c05ca52df6c4baa0723966e7",
+      "services/incident_context.py": "882939511076c31a80eed8dec513dd58e41e76d4861d2b70d0328139e49f16b6",
+      "services/investigation_policy.py": "2a384fc00ba2f5c716fddd933e11fa6ea1cbc0b02c2998311b202da998bfb052",
+      "services/remediation.py": "c485837ca5fb94a1a4835741f9f3416dcd542f1633decfcc53f21fd383d2eccd",
+      "services/incident_retrieval.py": "be9d4cb389d2a6fb14b0eebf21f02b770aa1a29682034743efb5f72ef8763473",
+      "services/hypothesis.py": "cf5c61f665868120d8cd3e128070a0a6859cb1f0dbc7b01290a6327323757abe",
+      "services/session_store.py": "6156a2d46c07e6f9c564db17c97b2491ff51927371713397139c17e2f2cac853",
+      "services/pinecone_store.py": "6ac73ae04f2b40a251be0516f6a44a3a31220b526cb08b5a758d64815995e23d",
+      "services/verification.py": "78b4046b5ba9119f8a38980319367a79d1b092d357c0000891989af990e2f6df",
+      "services/graph_store.py": "227c845071e6f97bfedf9d70c098e889f7efc356d4cc6f84ba42cd4039555a21",
+      "agents/__init__.py": "34b8e523294e08a92fa9e75257c49024c6502cb4c681beba1a05b511ed86c48e",
+      "agents/rca_agent.py": "eb4af82def3a2b84aef32edc2d42df40eb9ebbdc39e17847f3a9cb39dc0b516f",
+      "agents/retrieval_agent.py": "1106b06c965663e7fe2605a673c7ba4be9d82db693ec7af9554d1370491f3a1b",
+      "agents/base_agent.py": "0f242fee744380baa4cd8a02fb644af5f6b8fb73548cda0eb3232c79db1f6b7a",
+      "agents/orchestrator.py": "eff77071d56600bac4a242879f3cbf74a89af3342bb5e3ebef0fc0f7507b50b9",
+      "api/__init__.py": "b6c193ae05b16eead9064865cbfecb5e5c86f5cf6b903297cbfb0eb42613edb0",
+      "api/routes.py": "6d0f911912dd61d6ab79f308d418666794aa5f82edc832152b1b5f8fe9b7d031"
+    },
+    "fixture_sha256": {
+      "demo_metrics.json": "5dd2ba5f1d0087565462b73c6cc398e0330430d4515abd5cb84c04c11e5fc3fd",
+      "demo_app.log": "222a250f42d55da18bb7bbe126313f87f82c5ebe72a3a1911461dcf0db47945b",
+      "demo_dashboard.png": "0030451a2974ea7c75e859d22910c9d286b4c5406c472936251149e5fac94260",
+      "context/demo_dependencies.json": "6ebd3b9c64583b4f6ec9cc7fac822b1527803e66abe6576c6e34ffb99d181ded",
+      "context/demo_changes.json": "f18336d63211e288bc549dbca004d19b561f2f14a3e3cea1f4a66f83171ad7d1"
+    }
+  },
+  "frozen_baseline_preflight": {
+    "normalization": "Canonical node order; original two-hop content and budgets retained",
+    "manifest": {
+      "commit": "f22e968901956e770e7388011808bc06324b5a32",
+      "files": {
+        "agents_retrieval_agent.py.txt": "1b2b4e0b8d64d3768716027624a1387d229def0f7ffaac626db9c08abb8d9964",
+        "agents_rca_agent.py.txt": "b681ac656fbe05c2ec0c7684775a8c28720b423902da5395fcef8430c1ec2a5f",
+        "services_log_parser.py.txt": "ad9e9725f7ad67e89e2e5dd6fbff5bb4c70cb5c3cf20de4e1a2a28ba7a8741f8",
+        "services_metrics_parser.py.txt": "3c5bde3bb78d81714972da39cf76ef212288ca6a597f4a3585ba67dfa806ca42",
+        "services_graph_store.py.txt": "09685b54d756ac63d8b97eabeb1cd279b3fd3de98771200de93df682876d2e9d"
+      }
+    },
+    "graph_nodes": [
+      {
+        "node": "api-gateway",
+        "path": [
+          "api-gateway"
+        ],
+        "attrs": {
+          "type": "service"
+        }
+      },
+      {
+        "node": "auth-service",
+        "path": [
+          "auth-service"
+        ],
+        "attrs": {
+          "type": "service"
+        }
+      },
+      {
+        "node": "user-db",
+        "path": [
+          "user-db"
+        ],
+        "attrs": {
+          "type": "database"
+        }
+      }
+    ],
+    "trace": [
+      {
+        "agent": "retrieval_agent",
+        "action": "embed_query",
+        "result": "Generated 768-dim query vector",
+        "timestamp": "2026-11-19T11:31:53.228686+00:00"
+      },
+      {
+        "agent": "retrieval_agent",
+        "action": "pinecone_search",
+        "result": "Retrieved 1 vector matches",
+        "timestamp": "2026-11-19T11:31:53.228702+00:00"
+      },
+      {
+        "agent": "retrieval_agent",
+        "action": "session_scope",
+        "result": "Using session_id=frozen-b... for graph + vectors",
+        "timestamp": "2026-11-19T11:31:53.228704+00:00"
+      },
+      {
+        "agent": "retrieval_agent",
+        "action": "entity_extraction",
+        "result": "Seed entities: ['auth-service', 'api-gateway', 'user-db']",
+        "timestamp": "2026-11-19T11:31:53.228714+00:00"
+      },
+      {
+        "agent": "retrieval_agent",
+        "action": "graph_traversal",
+        "result": "Found 3 related graph nodes from 3 entities",
+        "timestamp": "2026-11-19T11:31:53.228858+00:00"
+      }
+    ],
+    "projection_nodes": 7,
+    "projection_edges": 5
+  },
+  "providers": {
+    "text": "dns_unavailable",
+    "vision": "dns_unavailable",
+    "vector": "dns_unavailable"
+  },
+  "model": "gemini-3.5-flash",
+  "question_record_limit": 5,
+  "provider_gap_seconds": 15.0,
+  "retrieval": {
+    "keyword": {
+      "recall_at_5": 0.3333333333333333,
+      "top_1": 0.3333333333333333,
+      "mrr": 0.3333333333333333,
+      "median_case_latency_ms": 0.1975
+    },
+    "keyword_graph": {
+      "recall_at_5": 1.0,
+      "top_1": 1.0,
+      "mrr": 1.0,
+      "median_case_latency_ms": 0.38149999999999995
+    }
+  },
+  "answers": {
+    "extractive": {
+      "fact_and_source_matches": 6,
+      "questions": 6,
+      "model_attempts": 0,
+      "generated_replies": 0,
+      "source_backed_replies": 0,
+      "rate_limited_calls": 0,
+      "generated_fact_and_source_matches": 0
+    },
+    "automatic": {
+      "fact_and_source_matches": 6,
+      "questions": 6,
+      "model_attempts": 0,
+      "generated_replies": 0,
+      "source_backed_replies": 6,
+      "rate_limited_calls": 0,
+      "generated_fact_and_source_matches": 0
+    },
+    "model_off": {
+      "fact_and_source_matches": 4,
+      "questions": 6,
+      "model_attempts": 0,
+      "generated_replies": 0,
+      "source_backed_replies": 0,
+      "rate_limited_calls": 0,
+      "generated_fact_and_source_matches": 0
+    }
+  },
+  "questions": [
+    {
+      "case": "pool-dependency",
+      "question": "What is the connection limit for the dependency of checkout-api?",
+      "expected_observation": "Connection pool limit: 24 connections",
+      "expected_service": "orders-db",
+      "support_id": "6f10e5d0-2773-52de-a4fe-2cc8396542e5",
+      "retrieval": {
+        "keyword": {
+          "rank": null,
+          "records": 5,
+          "median_ms": 0.195,
+          "sources": [
+            {
+              "id": "6c94d100-9565-585a-8304-b70e4f23358d",
+              "service": "checkout-api",
+              "summary": "Connection limit check completed",
+              "file": "source.log",
+              "line": 7
+            },
+            {
+              "id": "2b10fc82-f0f0-5e2a-8442-2728fc286346",
+              "service": "checkout-api",
+              "summary": "Connection limit check completed",
+              "file": "source.log",
+              "line": 6
+            },
+            {
+              "id": "11903b17-d06d-5c90-b72d-55416263cfe3",
+              "service": "checkout-api",
+              "summary": "Connection limit check completed",
+              "file": "source.log",
+              "line": 5
+            },
+            {
+              "id": "6bb05548-2c15-5c40-8015-413710c71173",
+              "service": "checkout-api",
+              "summary": "Connection limit check completed",
+              "file": "source.log",
+              "line": 4
+            },
+            {
+              "id": "d10378b4-6b8f-5ef9-8ace-9590d910b76e",
+              "service": "checkout-api",
+              "summary": "Connection limit check completed",
+              "file": "source.log",
+              "line": 3
+            }
+          ]
+        },
+        "keyword_graph": {
+          "rank": 1,
+          "records": 5,
+          "median_ms": 0.351,
+          "sources": [
+            {
+              "id": "6f10e5d0-2773-52de-a4fe-2cc8396542e5",
+              "service": "orders-db",
+              "summary": "Connection pool limit: 24 connections",
+              "file": "source.log",
+              "line": 1
+            },
+            {
+              "id": "6c94d100-9565-585a-8304-b70e4f23358d",
+              "service": "checkout-api",
+              "summary": "Connection limit check completed",
+              "file": "source.log",
+              "line": 7
+            },
+            {
+              "id": "2b10fc82-f0f0-5e2a-8442-2728fc286346",
+              "service": "checkout-api",
+              "summary": "Connection limit check completed",
+              "file": "source.log",
+              "line": 6
+            },
+            {
+              "id": "11903b17-d06d-5c90-b72d-55416263cfe3",
+              "service": "checkout-api",
+              "summary": "Connection limit check completed",
+              "file": "source.log",
+              "line": 5
+            },
+            {
+              "id": "6bb05548-2c15-5c40-8015-413710c71173",
+              "service": "checkout-api",
+              "summary": "Connection limit check completed",
+              "file": "source.log",
+              "line": 4
+            }
+          ]
+        }
+      },
+      "answers": {
+        "extractive": {
+          "fact_and_source_match": true,
+          "claims": [
+            {
+              "text": "Connection pool limit: 24 connections",
+              "citations": [
+                {
+                  "observation_id": "6f10e5d0-2773-52de-a4fe-2cc8396542e5",
+                  "label": "source.log \u00b7 line 1"
+                }
+              ]
+            },
+            {
+              "text": "Connection limit check completed",
+              "citations": [
+                {
+                  "observation_id": "6c94d100-9565-585a-8304-b70e4f23358d",
+                  "label": "source.log \u00b7 line 7"
+                }
+              ]
+            },
+            {
+              "text": "Connection limit check completed",
+              "citations": [
+                {
+                  "observation_id": "2b10fc82-f0f0-5e2a-8442-2728fc286346",
+                  "label": "source.log \u00b7 line 6"
+                }
+              ]
+            },
+            {
+              "text": "Connection limit check completed",
+              "citations": [
+                {
+                  "observation_id": "11903b17-d06d-5c90-b72d-55416263cfe3",
+                  "label": "source.log \u00b7 line 5"
+                }
+              ]
+            },
+            {
+              "text": "Connection limit check completed",
+              "citations": [
+                {
+                  "observation_id": "6bb05548-2c15-5c40-8015-413710c71173",
+                  "label": "source.log \u00b7 line 4"
+                }
+              ]
+            }
+          ]
+        },
+        "automatic": {
+          "fact_and_source_match": true,
+          "claims": [
+            {
+              "text": "orders-db \u00b7 2024-02-01T12:00:00.000000+00:00 \u00b7 Connection pool limit: 24 connections",
+              "citations": [
+                {
+                  "observation_id": "6f10e5d0-2773-52de-a4fe-2cc8396542e5",
+                  "label": "source.log \u00b7 line 1"
+                }
+              ]
+            }
+          ],
+          "decision": "insufficient_evidence",
+          "mode": "extractive",
+          "model_attempts": 0,
+          "provider_calls": [],
+          "latency_ms": 1.844
+        },
+        "model_off": {
+          "fact_and_source_match": true,
+          "claims": [
+            {
+              "text": "The available observations do not establish a supported pool-limit or CPU diagnosis.",
+              "citations": []
+            },
+            {
+              "text": "orders-db: Connection pool limit: 24 connections",
+              "citations": [
+                {
+                  "observation_id": "6f10e5d0-2773-52de-a4fe-2cc8396542e5",
+                  "label": "source.log \u00b7 line 1"
+                }
+              ]
+            }
+          ],
+          "decision": "insufficient_evidence",
+          "mode": "local",
+          "model_attempts": 0,
+          "provider_calls": [],
+          "latency_ms": 1.332
+        }
+      }
+    },
+    {
+      "case": "cpu-dependency",
+      "question": "What CPU percentage did the dependency of ingest-gateway reach?",
+      "expected_observation": "CPU reached 92 percent",
+      "expected_service": "image-worker",
+      "support_id": "71771f25-8cfc-5838-92df-98033ec7b1c6",
+      "retrieval": {
+        "keyword": {
+          "rank": null,
+          "records": 5,
+          "median_ms": 0.212,
+          "sources": [
+            {
+              "id": "8652bc85-9937-5ff3-9eeb-06e2c01c6778",
+              "service": "ingest-gateway",
+              "summary": "CPU percentage check completed",
+              "file": "source.log",
+              "line": 7
+            },
+            {
+              "id": "57536351-5129-5bd5-abcb-758b25a80fce",
+              "service": "ingest-gateway",
+              "summary": "CPU percentage check completed",
+              "file": "source.log",
+              "line": 6
+            },
+            {
+              "id": "50f79a51-834f-53da-a49a-caaa94c62005",
+              "service": "ingest-gateway",
+              "summary": "CPU percentage check completed",
+              "file": "source.log",
+              "line": 5
+            },
+            {
+              "id": "ae3e7603-ceb8-5ad4-ade4-4c4feb49c600",
+              "service": "ingest-gateway",
+              "summary": "CPU percentage check completed",
+              "file": "source.log",
+              "line": 4
+            },
+            {
+              "id": "a171609a-58ce-5a61-ba3c-c120f3cd8caf",
+              "service": "ingest-gateway",
+              "summary": "CPU percentage check completed",
+              "file": "source.log",
+              "line": 3
+            }
+          ]
+        },
+        "keyword_graph": {
+          "rank": 1,
+          "records": 5,
+          "median_ms": 0.433,
+          "sources": [
+            {
+              "id": "71771f25-8cfc-5838-92df-98033ec7b1c6",
+              "service": "image-worker",
+              "summary": "CPU reached 92 percent",
+              "file": "source.log",
+              "line": 1
+            },
+            {
+              "id": "8652bc85-9937-5ff3-9eeb-06e2c01c6778",
+              "service": "ingest-gateway",
+              "summary": "CPU percentage check completed",
+              "file": "source.log",
+              "line": 7
+            },
+            {
+              "id": "57536351-5129-5bd5-abcb-758b25a80fce",
+              "service": "ingest-gateway",
+              "summary": "CPU percentage check completed",
+              "file": "source.log",
+              "line": 6
+            },
+            {
+              "id": "50f79a51-834f-53da-a49a-caaa94c62005",
+              "service": "ingest-gateway",
+              "summary": "CPU percentage check completed",
+              "file": "source.log",
+              "line": 5
+            },
+            {
+              "id": "ae3e7603-ceb8-5ad4-ade4-4c4feb49c600",
+              "service": "ingest-gateway",
+              "summary": "CPU percentage check completed",
+              "file": "source.log",
+              "line": 4
+            }
+          ]
+        }
+      },
+      "answers": {
+        "extractive": {
+          "fact_and_source_match": true,
+          "claims": [
+            {
+              "text": "CPU reached 92 percent",
+              "citations": [
+                {
+                  "observation_id": "71771f25-8cfc-5838-92df-98033ec7b1c6",
+                  "label": "source.log \u00b7 line 1"
+                }
+              ]
+            },
+            {
+              "text": "CPU percentage check completed",
+              "citations": [
+                {
+                  "observation_id": "8652bc85-9937-5ff3-9eeb-06e2c01c6778",
+                  "label": "source.log \u00b7 line 7"
+                }
+              ]
+            },
+            {
+              "text": "CPU percentage check completed",
+              "citations": [
+                {
+                  "observation_id": "57536351-5129-5bd5-abcb-758b25a80fce",
+                  "label": "source.log \u00b7 line 6"
+                }
+              ]
+            },
+            {
+              "text": "CPU percentage check completed",
+              "citations": [
+                {
+                  "observation_id": "50f79a51-834f-53da-a49a-caaa94c62005",
+                  "label": "source.log \u00b7 line 5"
+                }
+              ]
+            },
+            {
+              "text": "CPU percentage check completed",
+              "citations": [
+                {
+                  "observation_id": "ae3e7603-ceb8-5ad4-ade4-4c4feb49c600",
+                  "label": "source.log \u00b7 line 4"
+                }
+              ]
+            }
+          ]
+        },
+        "automatic": {
+          "fact_and_source_match": true,
+          "claims": [
+            {
+              "text": "image-worker \u00b7 2024-02-01T12:00:00.000000+00:00 \u00b7 CPU reached 92 percent",
+              "citations": [
+                {
+                  "observation_id": "71771f25-8cfc-5838-92df-98033ec7b1c6",
+                  "label": "source.log \u00b7 line 1"
+                }
+              ]
+            }
+          ],
+          "decision": "insufficient_evidence",
+          "mode": "extractive",
+          "model_attempts": 0,
+          "provider_calls": [],
+          "latency_ms": 1.114
+        },
+        "model_off": {
+          "fact_and_source_match": true,
+          "claims": [
+            {
+              "text": "The available observations do not establish a supported pool-limit or CPU diagnosis.",
+              "citations": []
+            },
+            {
+              "text": "image-worker: CPU reached 92 percent",
+              "citations": [
+                {
+                  "observation_id": "71771f25-8cfc-5838-92df-98033ec7b1c6",
+                  "label": "source.log \u00b7 line 1"
+                }
+              ]
+            }
+          ],
+          "decision": "insufficient_evidence",
+          "mode": "local",
+          "model_attempts": 0,
+          "provider_calls": [],
+          "latency_ms": 0.77
+        }
+      }
+    },
+    {
+      "case": "rollout-dependency",
+      "question": "Which deployment version did the dependency of account-api report?",
+      "expected_observation": "Deployment version v2.7.4",
+      "expected_service": "identity-worker",
+      "support_id": "4cfb2d10-1460-5cde-b2f2-10327c65dc95",
+      "retrieval": {
+        "keyword": {
+          "rank": null,
+          "records": 5,
+          "median_ms": 0.2,
+          "sources": [
+            {
+              "id": "f28daeba-e24b-5e1b-b4a7-a1d66763ec73",
+              "service": "account-api",
+              "summary": "Deployment version check completed",
+              "file": "source.log",
+              "line": 7
+            },
+            {
+              "id": "85038fb6-363b-5212-bc73-c00496b22271",
+              "service": "account-api",
+              "summary": "Deployment version check completed",
+              "file": "source.log",
+              "line": 6
+            },
+            {
+              "id": "54308a4a-f6df-5ddd-ab91-73ce5c23aa8b",
+              "service": "account-api",
+              "summary": "Deployment version check completed",
+              "file": "source.log",
+              "line": 5
+            },
+            {
+              "id": "e2a31d27-2e6a-5c93-8dd0-5065d055f15a",
+              "service": "account-api",
+              "summary": "Deployment version check completed",
+              "file": "source.log",
+              "line": 4
+            },
+            {
+              "id": "0202883f-27f3-5734-852f-a557cb9b66ee",
+              "service": "account-api",
+              "summary": "Deployment version check completed",
+              "file": "source.log",
+              "line": 3
+            }
+          ]
+        },
+        "keyword_graph": {
+          "rank": 1,
+          "records": 5,
+          "median_ms": 0.412,
+          "sources": [
+            {
+              "id": "4cfb2d10-1460-5cde-b2f2-10327c65dc95",
+              "service": "identity-worker",
+              "summary": "Deployment version v2.7.4",
+              "file": "source.log",
+              "line": 1
+            },
+            {
+              "id": "f28daeba-e24b-5e1b-b4a7-a1d66763ec73",
+              "service": "account-api",
+              "summary": "Deployment version check completed",
+              "file": "source.log",
+              "line": 7
+            },
+            {
+              "id": "85038fb6-363b-5212-bc73-c00496b22271",
+              "service": "account-api",
+              "summary": "Deployment version check completed",
+              "file": "source.log",
+              "line": 6
+            },
+            {
+              "id": "54308a4a-f6df-5ddd-ab91-73ce5c23aa8b",
+              "service": "account-api",
+              "summary": "Deployment version check completed",
+              "file": "source.log",
+              "line": 5
+            },
+            {
+              "id": "e2a31d27-2e6a-5c93-8dd0-5065d055f15a",
+              "service": "account-api",
+              "summary": "Deployment version check completed",
+              "file": "source.log",
+              "line": 4
+            }
+          ]
+        }
+      },
+      "answers": {
+        "extractive": {
+          "fact_and_source_match": true,
+          "claims": [
+            {
+              "text": "Deployment version v2.7.4",
+              "citations": [
+                {
+                  "observation_id": "4cfb2d10-1460-5cde-b2f2-10327c65dc95",
+                  "label": "source.log \u00b7 line 1"
+                }
+              ]
+            },
+            {
+              "text": "Deployment version check completed",
+              "citations": [
+                {
+                  "observation_id": "f28daeba-e24b-5e1b-b4a7-a1d66763ec73",
+                  "label": "source.log \u00b7 line 7"
+                }
+              ]
+            },
+            {
+              "text": "Deployment version check completed",
+              "citations": [
+                {
+                  "observation_id": "85038fb6-363b-5212-bc73-c00496b22271",
+                  "label": "source.log \u00b7 line 6"
+                }
+              ]
+            },
+            {
+              "text": "Deployment version check completed",
+              "citations": [
+                {
+                  "observation_id": "54308a4a-f6df-5ddd-ab91-73ce5c23aa8b",
+                  "label": "source.log \u00b7 line 5"
+                }
+              ]
+            },
+            {
+              "text": "Deployment version check completed",
+              "citations": [
+                {
+                  "observation_id": "e2a31d27-2e6a-5c93-8dd0-5065d055f15a",
+                  "label": "source.log \u00b7 line 4"
+                }
+              ]
+            }
+          ]
+        },
+        "automatic": {
+          "fact_and_source_match": true,
+          "claims": [
+            {
+              "text": "identity-worker \u00b7 2024-02-01T12:00:00.000000+00:00 \u00b7 Deployment version v2.7.4",
+              "citations": [
+                {
+                  "observation_id": "4cfb2d10-1460-5cde-b2f2-10327c65dc95",
+                  "label": "source.log \u00b7 line 1"
+                }
+              ]
+            }
+          ],
+          "decision": "insufficient_evidence",
+          "mode": "extractive",
+          "model_attempts": 0,
+          "provider_calls": [],
+          "latency_ms": 1.092
+        },
+        "model_off": {
+          "fact_and_source_match": true,
+          "claims": [
+            {
+              "text": "The available observations do not establish a supported pool-limit or CPU diagnosis.",
+              "citations": []
+            },
+            {
+              "text": "identity-worker: Deployment version v2.7.4",
+              "citations": [
+                {
+                  "observation_id": "4cfb2d10-1460-5cde-b2f2-10327c65dc95",
+                  "label": "source.log \u00b7 line 1"
+                }
+              ]
+            }
+          ],
+          "decision": "insufficient_evidence",
+          "mode": "local",
+          "model_attempts": 0,
+          "provider_calls": [],
+          "latency_ms": 0.821
+        }
+      }
+    },
+    {
+      "case": "caller-error",
+      "question": "What error code did a caller of message-broker report?",
+      "expected_observation": "Error code 503",
+      "expected_service": "notification-api",
+      "support_id": "364f5a26-cc77-5776-864b-e75c00f589d2",
+      "retrieval": {
+        "keyword": {
+          "rank": null,
+          "records": 5,
+          "median_ms": 0.216,
+          "sources": [
+            {
+              "id": "acc824e0-961b-5d3d-aa69-ff99ac7d2ae7",
+              "service": "message-broker",
+              "summary": "Error code monitor responding",
+              "file": "source.log",
+              "line": 7
+            },
+            {
+              "id": "195c05d8-e5d4-5ae8-b703-3785f054d16c",
+              "service": "message-broker",
+              "summary": "Error code monitor responding",
+              "file": "source.log",
+              "line": 6
+            },
+            {
+              "id": "4dda52fb-eab9-5186-ade5-74a11827af64",
+              "service": "message-broker",
+              "summary": "Error code monitor responding",
+              "file": "source.log",
+              "line": 5
+            },
+            {
+              "id": "a0d3a60a-a93b-5a99-a06f-790feac46934",
+              "service": "message-broker",
+              "summary": "Error code monitor responding",
+              "file": "source.log",
+              "line": 4
+            },
+            {
+              "id": "67ce854a-507f-5fb2-a6a5-212c0b4eaae1",
+              "service": "message-broker",
+              "summary": "Error code monitor responding",
+              "file": "source.log",
+              "line": 3
+            }
+          ]
+        },
+        "keyword_graph": {
+          "rank": 1,
+          "records": 5,
+          "median_ms": 0.412,
+          "sources": [
+            {
+              "id": "364f5a26-cc77-5776-864b-e75c00f589d2",
+              "service": "notification-api",
+              "summary": "Error code 503",
+              "file": "source.log",
+              "line": 1
+            },
+            {
+              "id": "acc824e0-961b-5d3d-aa69-ff99ac7d2ae7",
+              "service": "message-broker",
+              "summary": "Error code monitor responding",
+              "file": "source.log",
+              "line": 7
+            },
+            {
+              "id": "195c05d8-e5d4-5ae8-b703-3785f054d16c",
+              "service": "message-broker",
+              "summary": "Error code monitor responding",
+              "file": "source.log",
+              "line": 6
+            },
+            {
+              "id": "4dda52fb-eab9-5186-ade5-74a11827af64",
+              "service": "message-broker",
+              "summary": "Error code monitor responding",
+              "file": "source.log",
+              "line": 5
+            },
+            {
+              "id": "a0d3a60a-a93b-5a99-a06f-790feac46934",
+              "service": "message-broker",
+              "summary": "Error code monitor responding",
+              "file": "source.log",
+              "line": 4
+            }
+          ]
+        }
+      },
+      "answers": {
+        "extractive": {
+          "fact_and_source_match": true,
+          "claims": [
+            {
+              "text": "Error code 503",
+              "citations": [
+                {
+                  "observation_id": "364f5a26-cc77-5776-864b-e75c00f589d2",
+                  "label": "source.log \u00b7 line 1"
+                }
+              ]
+            },
+            {
+              "text": "Error code monitor responding",
+              "citations": [
+                {
+                  "observation_id": "acc824e0-961b-5d3d-aa69-ff99ac7d2ae7",
+                  "label": "source.log \u00b7 line 7"
+                }
+              ]
+            },
+            {
+              "text": "Error code monitor responding",
+              "citations": [
+                {
+                  "observation_id": "195c05d8-e5d4-5ae8-b703-3785f054d16c",
+                  "label": "source.log \u00b7 line 6"
+                }
+              ]
+            },
+            {
+              "text": "Error code monitor responding",
+              "citations": [
+                {
+                  "observation_id": "4dda52fb-eab9-5186-ade5-74a11827af64",
+                  "label": "source.log \u00b7 line 5"
+                }
+              ]
+            },
+            {
+              "text": "Error code monitor responding",
+              "citations": [
+                {
+                  "observation_id": "a0d3a60a-a93b-5a99-a06f-790feac46934",
+                  "label": "source.log \u00b7 line 4"
+                }
+              ]
+            }
+          ]
+        },
+        "automatic": {
+          "fact_and_source_match": true,
+          "claims": [
+            {
+              "text": "notification-api \u00b7 2024-02-01T12:00:00.000000+00:00 \u00b7 Error code 503",
+              "citations": [
+                {
+                  "observation_id": "364f5a26-cc77-5776-864b-e75c00f589d2",
+                  "label": "source.log \u00b7 line 1"
+                }
+              ]
+            }
+          ],
+          "decision": "insufficient_evidence",
+          "mode": "extractive",
+          "model_attempts": 0,
+          "provider_calls": [],
+          "latency_ms": 1.187
+        },
+        "model_off": {
+          "fact_and_source_match": true,
+          "claims": [
+            {
+              "text": "The available observations do not establish a supported pool-limit or CPU diagnosis.",
+              "citations": []
+            },
+            {
+              "text": "notification-api: Error code 503",
+              "citations": [
+                {
+                  "observation_id": "364f5a26-cc77-5776-864b-e75c00f589d2",
+                  "label": "source.log \u00b7 line 1"
+                }
+              ]
+            }
+          ],
+          "decision": "insufficient_evidence",
+          "mode": "local",
+          "model_attempts": 0,
+          "provider_calls": [],
+          "latency_ms": 1.018
+        }
+      }
+    },
+    {
+      "case": "direct-cpu",
+      "question": "What CPU percentage did export-worker reach?",
+      "expected_observation": "CPU reached 91 percent",
+      "expected_service": "export-worker",
+      "support_id": "45bf8750-cb36-59b2-8c66-2b5378a05070",
+      "retrieval": {
+        "keyword": {
+          "rank": 1,
+          "records": 5,
+          "median_ms": 0.17,
+          "sources": [
+            {
+              "id": "45bf8750-cb36-59b2-8c66-2b5378a05070",
+              "service": "export-worker",
+              "summary": "CPU reached 91 percent",
+              "file": "source.log",
+              "line": 1
+            },
+            {
+              "id": "e6524227-3e45-5853-b17a-823b7154538b",
+              "service": "export-worker",
+              "summary": "Health probe passed",
+              "file": "source.log",
+              "line": 7
+            },
+            {
+              "id": "55a486e3-f1fc-58f2-9c0a-e4100b4e4c2e",
+              "service": "export-worker",
+              "summary": "Health probe passed",
+              "file": "source.log",
+              "line": 6
+            },
+            {
+              "id": "44ac42f3-8d9b-57ad-b898-b45734a1e984",
+              "service": "export-worker",
+              "summary": "Health probe passed",
+              "file": "source.log",
+              "line": 5
+            },
+            {
+              "id": "97b78cff-3bfd-5d63-9021-4695855b45c1",
+              "service": "export-worker",
+              "summary": "Health probe passed",
+              "file": "source.log",
+              "line": 4
+            }
+          ]
+        },
+        "keyword_graph": {
+          "rank": 1,
+          "records": 5,
+          "median_ms": 0.165,
+          "sources": [
+            {
+              "id": "45bf8750-cb36-59b2-8c66-2b5378a05070",
+              "service": "export-worker",
+              "summary": "CPU reached 91 percent",
+              "file": "source.log",
+              "line": 1
+            },
+            {
+              "id": "e6524227-3e45-5853-b17a-823b7154538b",
+              "service": "export-worker",
+              "summary": "Health probe passed",
+              "file": "source.log",
+              "line": 7
+            },
+            {
+              "id": "55a486e3-f1fc-58f2-9c0a-e4100b4e4c2e",
+              "service": "export-worker",
+              "summary": "Health probe passed",
+              "file": "source.log",
+              "line": 6
+            },
+            {
+              "id": "44ac42f3-8d9b-57ad-b898-b45734a1e984",
+              "service": "export-worker",
+              "summary": "Health probe passed",
+              "file": "source.log",
+              "line": 5
+            },
+            {
+              "id": "97b78cff-3bfd-5d63-9021-4695855b45c1",
+              "service": "export-worker",
+              "summary": "Health probe passed",
+              "file": "source.log",
+              "line": 4
+            }
+          ]
+        }
+      },
+      "answers": {
+        "extractive": {
+          "fact_and_source_match": true,
+          "claims": [
+            {
+              "text": "CPU reached 91 percent",
+              "citations": [
+                {
+                  "observation_id": "45bf8750-cb36-59b2-8c66-2b5378a05070",
+                  "label": "source.log \u00b7 line 1"
+                }
+              ]
+            },
+            {
+              "text": "Health probe passed",
+              "citations": [
+                {
+                  "observation_id": "e6524227-3e45-5853-b17a-823b7154538b",
+                  "label": "source.log \u00b7 line 7"
+                }
+              ]
+            },
+            {
+              "text": "Health probe passed",
+              "citations": [
+                {
+                  "observation_id": "55a486e3-f1fc-58f2-9c0a-e4100b4e4c2e",
+                  "label": "source.log \u00b7 line 6"
+                }
+              ]
+            },
+            {
+              "text": "Health probe passed",
+              "citations": [
+                {
+                  "observation_id": "44ac42f3-8d9b-57ad-b898-b45734a1e984",
+                  "label": "source.log \u00b7 line 5"
+                }
+              ]
+            },
+            {
+              "text": "Health probe passed",
+              "citations": [
+                {
+                  "observation_id": "97b78cff-3bfd-5d63-9021-4695855b45c1",
+                  "label": "source.log \u00b7 line 4"
+                }
+              ]
+            }
+          ]
+        },
+        "automatic": {
+          "fact_and_source_match": true,
+          "claims": [
+            {
+              "text": "export-worker \u00b7 2024-02-01T12:00:00.000000+00:00 \u00b7 CPU reached 91 percent",
+              "citations": [
+                {
+                  "observation_id": "45bf8750-cb36-59b2-8c66-2b5378a05070",
+                  "label": "source.log \u00b7 line 1"
+                }
+              ]
+            }
+          ],
+          "decision": "insufficient_evidence",
+          "mode": "extractive",
+          "model_attempts": 0,
+          "provider_calls": [],
+          "latency_ms": 0.83
+        },
+        "model_off": {
+          "fact_and_source_match": false,
+          "claims": [
+            {
+              "text": "The available observations do not establish a supported pool-limit or CPU diagnosis.",
+              "citations": []
+            }
+          ],
+          "decision": "insufficient_evidence",
+          "mode": "local",
+          "model_attempts": 0,
+          "provider_calls": [],
+          "latency_ms": 0.637
+        }
+      }
+    },
+    {
+      "case": "direct-rollout",
+      "question": "Which deployment version did search-api report?",
+      "expected_observation": "Deployment version v4.6.1",
+      "expected_service": "search-api",
+      "support_id": "91306b76-fffe-5fc3-8024-1a8ebe8eae9b",
+      "retrieval": {
+        "keyword": {
+          "rank": 1,
+          "records": 5,
+          "median_ms": 0.18,
+          "sources": [
+            {
+              "id": "91306b76-fffe-5fc3-8024-1a8ebe8eae9b",
+              "service": "search-api",
+              "summary": "Deployment version v4.6.1",
+              "file": "source.log",
+              "line": 1
+            },
+            {
+              "id": "7970ea63-5bc3-5cbb-82ae-f85e0b69b4e1",
+              "service": "search-api",
+              "summary": "Health probe passed",
+              "file": "source.log",
+              "line": 7
+            },
+            {
+              "id": "ed1f836d-eaae-5b9d-ad2a-fdcfbb4afdac",
+              "service": "search-api",
+              "summary": "Health probe passed",
+              "file": "source.log",
+              "line": 6
+            },
+            {
+              "id": "7d845519-6f06-5b3a-9aa7-36e7ac6b5529",
+              "service": "search-api",
+              "summary": "Health probe passed",
+              "file": "source.log",
+              "line": 5
+            },
+            {
+              "id": "a50418c5-8164-5e1d-87e7-30f9339999b2",
+              "service": "search-api",
+              "summary": "Health probe passed",
+              "file": "source.log",
+              "line": 4
+            }
+          ]
+        },
+        "keyword_graph": {
+          "rank": 1,
+          "records": 5,
+          "median_ms": 0.193,
+          "sources": [
+            {
+              "id": "91306b76-fffe-5fc3-8024-1a8ebe8eae9b",
+              "service": "search-api",
+              "summary": "Deployment version v4.6.1",
+              "file": "source.log",
+              "line": 1
+            },
+            {
+              "id": "7970ea63-5bc3-5cbb-82ae-f85e0b69b4e1",
+              "service": "search-api",
+              "summary": "Health probe passed",
+              "file": "source.log",
+              "line": 7
+            },
+            {
+              "id": "ed1f836d-eaae-5b9d-ad2a-fdcfbb4afdac",
+              "service": "search-api",
+              "summary": "Health probe passed",
+              "file": "source.log",
+              "line": 6
+            },
+            {
+              "id": "7d845519-6f06-5b3a-9aa7-36e7ac6b5529",
+              "service": "search-api",
+              "summary": "Health probe passed",
+              "file": "source.log",
+              "line": 5
+            },
+            {
+              "id": "a50418c5-8164-5e1d-87e7-30f9339999b2",
+              "service": "search-api",
+              "summary": "Health probe passed",
+              "file": "source.log",
+              "line": 4
+            }
+          ]
+        }
+      },
+      "answers": {
+        "extractive": {
+          "fact_and_source_match": true,
+          "claims": [
+            {
+              "text": "Deployment version v4.6.1",
+              "citations": [
+                {
+                  "observation_id": "91306b76-fffe-5fc3-8024-1a8ebe8eae9b",
+                  "label": "source.log \u00b7 line 1"
+                }
+              ]
+            },
+            {
+              "text": "Health probe passed",
+              "citations": [
+                {
+                  "observation_id": "7970ea63-5bc3-5cbb-82ae-f85e0b69b4e1",
+                  "label": "source.log \u00b7 line 7"
+                }
+              ]
+            },
+            {
+              "text": "Health probe passed",
+              "citations": [
+                {
+                  "observation_id": "ed1f836d-eaae-5b9d-ad2a-fdcfbb4afdac",
+                  "label": "source.log \u00b7 line 6"
+                }
+              ]
+            },
+            {
+              "text": "Health probe passed",
+              "citations": [
+                {
+                  "observation_id": "7d845519-6f06-5b3a-9aa7-36e7ac6b5529",
+                  "label": "source.log \u00b7 line 5"
+                }
+              ]
+            },
+            {
+              "text": "Health probe passed",
+              "citations": [
+                {
+                  "observation_id": "a50418c5-8164-5e1d-87e7-30f9339999b2",
+                  "label": "source.log \u00b7 line 4"
+                }
+              ]
+            }
+          ]
+        },
+        "automatic": {
+          "fact_and_source_match": true,
+          "claims": [
+            {
+              "text": "search-api \u00b7 2024-02-01T12:00:00.000000+00:00 \u00b7 Deployment version v4.6.1",
+              "citations": [
+                {
+                  "observation_id": "91306b76-fffe-5fc3-8024-1a8ebe8eae9b",
+                  "label": "source.log \u00b7 line 1"
+                }
+              ]
+            }
+          ],
+          "decision": "insufficient_evidence",
+          "mode": "extractive",
+          "model_attempts": 0,
+          "provider_calls": [],
+          "latency_ms": 0.829
+        },
+        "model_off": {
+          "fact_and_source_match": false,
+          "claims": [
+            {
+              "text": "The available observations do not establish a supported pool-limit or CPU diagnosis.",
+              "citations": []
+            }
+          ],
+          "decision": "insufficient_evidence",
+          "mode": "local",
+          "model_attempts": 0,
+          "provider_calls": [],
+          "latency_ms": 0.565
+        }
+      }
+    }
+  ],
+  "verifier": [
+    {
+      "case": "full-demo",
+      "decision": "supported",
+      "origin": "user-db",
+      "expected_decision": "supported",
+      "expected_origin": "user-db",
+      "matched": true,
+      "evidence": [
+        {
+          "type": "metrics",
+          "source": "demo_metrics.json",
+          "snippet": "cpu_percent=42.8, memory_percent=63, db_latency_ms=17.2, error_rate=0.005, requests_per_sec=250, db_connections_active=15, db_connections_limit=100",
+          "score": 0.0,
+          "observation_id": "6751203c-565d-524a-b545-5b6d61060196",
+          "source_position": 5,
+          "why": "Shows the previous pool limit and lower database latency.",
+          "timestamp": "2024-01-15T02:29:00.000000+00:00"
+        },
+        {
+          "type": "change",
+          "source": "demo_changes.json",
+          "snippet": "Reduced the database connection pool limit from 100 to 20.",
+          "score": 0.0,
+          "observation_id": "0276d30f-f430-5ca3-95d0-74d8b38e3a7d",
+          "source_position": 1,
+          "why": "Records the exact reduction in the connection pool limit.",
+          "timestamp": "2024-01-15T02:29:15.000000+00:00"
+        },
+        {
+          "type": "metrics",
+          "source": "demo_metrics.json",
+          "snippet": "cpu_percent=51.3, memory_percent=64.2, db_latency_ms=420, error_rate=0.18, requests_per_sec=261, db_connections_active=20, db_connections_limit=20",
+          "score": 0.0,
+          "observation_id": "ee8f0f8d-fb51-5c29-8dc8-af2b43599160",
+          "source_position": 7,
+          "why": "Shows the pool at its new limit as database latency rises.",
+          "timestamp": "2024-01-15T02:30:00.000000+00:00"
+        },
+        {
+          "type": "log",
+          "source": "demo_app.log",
+          "snippet": "DatabaseTimeout: POST /login could not acquire a user-db connection",
+          "score": 0.0,
+          "observation_id": "685288d4-512b-59d6-bf2b-3c91a1ad5e21",
+          "source_position": 7,
+          "why": "A declared caller reported a database connection timeout after saturation.",
+          "timestamp": "2024-01-15T02:31:01.000000+00:00"
+        },
+        {
+          "type": "log",
+          "source": "demo_app.log",
+          "snippet": "POST /login 504; upstream auth-service timed out",
+          "score": 0.0,
+          "observation_id": "28d7b4f6-d797-5b7f-be38-617862e89547",
+          "source_position": 8,
+          "why": "The caller\u2019s caller subsequently reported a 504 mentioning the affected upstream service.",
+          "timestamp": "2024-01-15T02:31:02.000000+00:00"
+        }
+      ],
+      "latency_ms": 0.925
+    },
+    {
+      "case": "missing-metrics",
+      "decision": "insufficient_evidence",
+      "origin": null,
+      "expected_decision": "insufficient_evidence",
+      "expected_origin": null,
+      "matched": true,
+      "evidence": [
+        {
+          "type": "change",
+          "source": "demo_changes.json",
+          "snippet": "Reduced the database connection pool limit from 100 to 20.",
+          "score": 0.0,
+          "observation_id": "ba37fddc-b671-5edb-b4fd-3f28205acb66",
+          "source_position": 1,
+          "why": "Records the exact reduction in the connection pool limit.",
+          "timestamp": "2024-01-15T02:29:15.000000+00:00"
+        }
+      ],
+      "latency_ms": 0.503
+    },
+    {
+      "case": "missing-topology",
+      "decision": "insufficient_evidence",
+      "origin": null,
+      "expected_decision": "insufficient_evidence",
+      "expected_origin": null,
+      "matched": true,
+      "evidence": [
+        {
+          "type": "metrics",
+          "source": "demo_metrics.json",
+          "snippet": "cpu_percent=42.8, memory_percent=63, db_latency_ms=17.2, error_rate=0.005, requests_per_sec=250, db_connections_active=15, db_connections_limit=100",
+          "score": 0.0,
+          "observation_id": "06d2cabd-1c1b-5e05-a4a1-b0a970a516f2",
+          "source_position": 5,
+          "why": "Shows the previous pool limit and lower database latency.",
+          "timestamp": "2024-01-15T02:29:00.000000+00:00"
+        },
+        {
+          "type": "change",
+          "source": "demo_changes.json",
+          "snippet": "Reduced the database connection pool limit from 100 to 20.",
+          "score": 0.0,
+          "observation_id": "b2143302-5849-557e-9c32-3a3061c79da0",
+          "source_position": 1,
+          "why": "Records the exact reduction in the connection pool limit.",
+          "timestamp": "2024-01-15T02:29:15.000000+00:00"
+        },
+        {
+          "type": "metrics",
+          "source": "demo_metrics.json",
+          "snippet": "cpu_percent=51.3, memory_percent=64.2, db_latency_ms=420, error_rate=0.18, requests_per_sec=261, db_connections_active=20, db_connections_limit=20",
+          "score": 0.0,
+          "observation_id": "3b7eb63c-8558-5b7d-8142-544bb6eec3a6",
+          "source_position": 7,
+          "why": "Shows the pool at its new limit as database latency rises.",
+          "timestamp": "2024-01-15T02:30:00.000000+00:00"
+        }
+      ],
+      "latency_ms": 0.797
+    }
+  ],
+  "synthesis": {
+    "question": "Did user-db reach the reduced pool limit before auth-service timed out? Give the UTC time of the first saturation sample and of the first caller timeout.",
+    "expected_order": "saturation at 02:30:00 then timeout at 02:31:01 UTC",
+    "arms": {
+      "extractive": {
+        "exact_times_with_source": 2,
+        "model_attempts": 0,
+        "claims": [
+          {
+            "text": "2024-01-15 02:29:00.000000+00:00 \u00b7 cpu_percent=42.8, memory_percent=63, db_latency_ms=17.2, error_rate=0.005, requests_per_sec=250, db_connections_active=15, db_connections_limit=100",
+            "citations": [
+              {
+                "observation_id": "6751203c-565d-524a-b545-5b6d61060196",
+                "label": "demo_metrics.json \u00b7 5"
+              }
+            ]
+          },
+          {
+            "text": "2024-01-15 02:29:15.000000+00:00 \u00b7 Reduced the database connection pool limit from 100 to 20.",
+            "citations": [
+              {
+                "observation_id": "0276d30f-f430-5ca3-95d0-74d8b38e3a7d",
+                "label": "demo_changes.json \u00b7 1"
+              }
+            ]
+          },
+          {
+            "text": "2024-01-15 02:30:00.000000+00:00 \u00b7 cpu_percent=51.3, memory_percent=64.2, db_latency_ms=420, error_rate=0.18, requests_per_sec=261, db_connections_active=20, db_connections_limit=20",
+            "citations": [
+              {
+                "observation_id": "ee8f0f8d-fb51-5c29-8dc8-af2b43599160",
+                "label": "demo_metrics.json \u00b7 7"
+              }
+            ]
+          },
+          {
+            "text": "2024-01-15 02:31:01.000000+00:00 \u00b7 DatabaseTimeout: POST /login could not acquire a user-db connection",
+            "citations": [
+              {
+                "observation_id": "685288d4-512b-59d6-bf2b-3c91a1ad5e21",
+                "label": "demo_app.log \u00b7 7"
+              }
+            ]
+          },
+          {
+            "text": "2024-01-15 02:31:02.000000+00:00 \u00b7 POST /login 504; upstream auth-service timed out",
+            "citations": [
+              {
+                "observation_id": "28d7b4f6-d797-5b7f-be38-617862e89547",
+                "label": "demo_app.log \u00b7 8"
+              }
+            ]
+          }
+        ],
+        "ordering_and_additional_claims": "manual_review"
+      },
+      "model_off": {
+        "exact_times_with_source": 0,
+        "latency_ms": 2.852,
+        "model_attempts": 0,
+        "provider_calls": [],
+        "mode": "local",
+        "claims": [
+          {
+            "text": "The pool limit dropped from 100 to 20. The pool reached the new limit as database latency rose. auth-service then reported a connection timeout, and api-gateway returned a 504.",
+            "citations": [
+              {
+                "observation_id": "6751203c-565d-524a-b545-5b6d61060196",
+                "label": "demo_metrics.json \u00b7 record 5"
+              },
+              {
+                "observation_id": "0276d30f-f430-5ca3-95d0-74d8b38e3a7d",
+                "label": "demo_changes.json \u00b7 record 1"
+              },
+              {
+                "observation_id": "ee8f0f8d-fb51-5c29-8dc8-af2b43599160",
+                "label": "demo_metrics.json \u00b7 record 7"
+              },
+              {
+                "observation_id": "685288d4-512b-59d6-bf2b-3c91a1ad5e21",
+                "label": "demo_app.log \u00b7 line 7"
+              },
+              {
+                "observation_id": "28d7b4f6-d797-5b7f-be38-617862e89547",
+                "label": "demo_app.log \u00b7 line 8"
+              }
+            ]
+          }
+        ],
+        "ordering_and_additional_claims": "manual_review"
+      }
+    }
+  },
+  "vision": {
+    "status": "dns_unavailable"
+  },
+  "legacy_comparison": {
+    "status": "not_run",
+    "reason": {
+      "text": "dns_unavailable",
+      "vision": "dns_unavailable",
+      "vector": "dns_unavailable"
+    }
+  }
+}

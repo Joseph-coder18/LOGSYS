@@ -40,7 +40,10 @@ def _generate_claims(
     question: str, diagnosis: VerifiedRCA, observations: list[Observation],
     previous_question: str | None = None, previous_ids: set[str] | None = None,
     dependency_links: list[dict] | None = None,
+    diagnostics: dict | None = None,
 ) -> list[ApprovedClaim] | None:
+    if diagnostics is not None:
+        diagnostics.update(status="invalid_output")
     sources = {f"E{index}": event for index, event in enumerate(observations, start=1)}
     packet = {
         "question": question,
@@ -56,6 +59,11 @@ def _generate_claims(
                 "service": event.service,
                 "cited_in_previous_reply": event.id in (previous_ids or ()),
                 "timestamp": event.timestamp,
+                "interval_start": event.interval_start, "interval_end": event.interval_end,
+                "metric_values": event.metric_values, "metric_units": event.metric_units,
+                "metric_aggregations": event.metric_aggregations, "metric_readings": event.metric_readings,
+                "provenance_group": event.provenance_group,
+                "quality_warnings": event.quality_warnings,
                 "source": _citation(event).label,
                 "summary": event.summary[:500],
                 "excerpt": event.excerpt[:600],
@@ -73,6 +81,7 @@ def _generate_claims(
         "If a cause is supported, explain only the verified cause. Distinguish hypotheses and suggested actions from facts. "
         "The supplied observations may be a sample. Scope peaks, totals, and first or last events to the available records. "
         "For a measured value, report the value from the cited record. "
+        "Intervals that overlap do not establish event order. Sources in the same provenance_group are representations of one stream, not independent corroboration. Respect metric_aggregations, a maximum has no precise occurrence time unless separately recorded. "
         "Each paragraph must cite the exact observations that support it. "
         "Return only JSON with decision equal to verified_decision and one to four statements, "
         'using this shape: {"decision":"supported","claims":[{"text":"A short factual paragraph","sources":["E1"]}]}. '
@@ -85,6 +94,11 @@ def _generate_claims(
         logger.info("Generated incident reply was not valid JSON.")
         return None
     except Exception as exc:
+        if diagnostics is not None:
+            code = getattr(exc, "code", None) or getattr(getattr(exc, "response", None), "status_code", None)
+            diagnostics.update(status="rate_limited" if code == 429 else "timeout" if isinstance(exc, TimeoutError) or "timeout" in type(exc).__name__.lower() else "provider_error")
+            if isinstance(code, int):
+                diagnostics["http_status"] = code
         logger.warning("Incident generation failed (%s). Using a local reply.", type(exc).__name__)
         return None
 
@@ -106,6 +120,8 @@ def _generate_claims(
         if any(not isinstance(alias, str) or alias not in sources for alias in aliases):
             return None
         result.append(ApprovedClaim(text=text.strip(), citations=[_citation(sources[alias]) for alias in dict.fromkeys(aliases)]))
+    if diagnostics is not None:
+        diagnostics.update(status="validated" if result else "no_answer")
     return result
 
 
@@ -176,17 +192,20 @@ def _followup_context(query: str, history: list[dict]) -> tuple[str | None, list
 async def answer_incident(
     session_dir: Path, query: str, history: list[dict] | None = None, *,
     use_model: bool = True, use_graph: bool = True, route_lookups: bool = True,
+    service: str | None = None, start: str | None = None, end: str | None = None,
 ) -> GroundedReply:
-    diagnosis = verify_incident(session_dir)
+    diagnosis = verify_incident(session_dir, service=service, start=start, end=end)
+    scope = {"services": [service] if service else None, "start": start, "end": end}
     previous_question, prior_ids = _followup_context(query, history or [])
     prior_sources = [event for observation_id in prior_ids if (event := observation_by_id(session_dir, observation_id))]
     terms = query_terms(query)
-    question_hits, keyword_count, graph_added, graph_links = retrieve_question_records(session_dir, terms, use_graph=use_graph)
+    retrieval_terms = query_terms(f"{previous_question} {query}") if previous_question else terms
+    question_hits, keyword_count, graph_added, graph_links = retrieve_question_records(session_dir, retrieval_terms, use_graph=use_graph, **scope)
     if previous_question:
         context_terms = query_terms(previous_question)
         if context_terms:
-            question_hits.extend(search_observations(session_dir, context_terms, 3))
-    lookup = find_lookup(session_dir, query, terms, question_hits, graph_links) if route_lookups and not previous_question else None
+            question_hits.extend(search_observations(session_dir, context_terms, 3, **scope))
+    lookup = find_lookup(session_dir, query, terms, question_hits, graph_links, start=start, end=end) if route_lookups and not previous_question else None
     lookup_claims = []
     lookup_sources = []
     if lookup:
@@ -201,12 +220,18 @@ async def answer_incident(
         lookup_sources = [event]
     provider = configured_provider() if use_model and not lookup else None
     semantic_hits = []
+    semantic_status = {"status": "disabled" if not semantic_retrieval_enabled() else "not_requested"}
     if provider and semantic_retrieval_enabled() and search_observations(session_dir, [], 1):
         try:
             async with asyncio.timeout(15):
                 search_query = f"{previous_question}\n{query}" if previous_question else query
-                semantic_hits = await run_in_threadpool(retrieve_semantic, session_dir, search_query, query_terms(search_query))
+                from functools import partial
+                semantic_scope = {**scope}
+                if service and graph_links:
+                    semantic_scope["services"] = list(dict.fromkeys([service, *(link["retrieval_service"] for link in graph_links)]))
+                semantic_hits = await run_in_threadpool(partial(retrieve_semantic, session_dir, search_query, query_terms(search_query), diagnostics=semantic_status, **semantic_scope))
         except Exception:
+            semantic_status.update(status="error", message="Semantic retrieval failed or timed out; local evidence was retained.")
             logger.warning("Semantic retrieval failed. Using local observations.", exc_info=True)
 
     # Include the verifier's primary evidence and a contradiction for each leading hypothesis.
@@ -221,11 +246,26 @@ async def answer_incident(
         event for observation_id in dict.fromkeys(reference_ids[:8])
         if (event := observation_by_id(session_dir, observation_id))
     ]
-    observations = list({event.id: event for event in [*verified_sources, *prior_sources, *question_hits, *semantic_hits, *lookup_sources]}.values())
+    observations = list({event.id: event for event in [*verified_sources, *prior_sources, *question_hits, *semantic_hits, *lookup_sources]}.values())[:20]
 
+    if start or end or service:
+        allowed_services = {service.lower()} if service else None
+        if allowed_services and graph_links:
+            allowed_services.update(link["retrieval_service"].lower() for link in graph_links)
+        def in_scope(event):
+            return ((not allowed_services or (event.service or '').lower() in allowed_services)
+                    and (not start or (event.interval_end or event.timestamp or '') >= start)
+                    and (not end or bool(event.interval_start or event.timestamp) and (event.interval_start or event.timestamp) < end))
+        allowed = {event.id for event in observations if in_scope(event)}
+        observations = [event for event in observations if event.id in allowed]
+        prior_sources = [event for event in prior_sources if event.id in allowed]
+        lookup_claims = [claim for claim in lookup_claims if all(citation.observation_id in allowed for citation in claim.citations)]
+        if lookup and not lookup_claims:
+            lookup = None
     model_attempted = bool(observations and provider)
+    generation_diagnostics = {"status": "not_requested"}
     generated = await run_in_threadpool(
-        _generate_claims, query, diagnosis, observations, previous_question, {event.id for event in prior_sources}, graph_links,
+        _generate_claims, query, diagnosis, observations, previous_question, {event.id for event in prior_sources}, graph_links, generation_diagnostics,
     ) if model_attempted else None
     topic = _default_topic(query)
     claims = lookup_claims or generated or _claims(session_dir, diagnosis, topic)
@@ -242,9 +282,11 @@ async def answer_incident(
         ]
         if related:
             claims = [*_claims(session_dir, diagnosis, "cause"), *related]
-    if generated and diagnosis.decision != "supported":
+    if generated and diagnosis.decision != "supported" and not (start or end or service):
         claims = [*_claims(session_dir, diagnosis, "cause"), *generated]
 
+    if (start or end or service) and not lookup and not generated:
+        claims = [ApprovedClaim(text=f"{event.service or 'Unknown service'}: {event.summary}", citations=[_citation(event)]) for event in observations[:4]] or [ApprovedClaim(text="No dated observations match the selected scope. Expand the UTC range or upload matching telemetry.")]
     mode = "extractive" if lookup else "generated" if generated else "local"
     status = mode
     if lookup:
@@ -275,18 +317,24 @@ async def answer_incident(
         "semantic": len(semantic_hits),
         "carried": len(prior_sources),
         "distinct": len(observations),
+        "source_groups": len({event.provenance_group or event.source_file for event in observations}),
     }
+    diagnosis_payload = diagnosis.model_dump(exclude={"answer", "agent_trace"})
+    if start or end or service:
+        # A scoped conversation must not replace or masquerade as the saved full-incident verdict.
+        diagnosis_payload.update(evidence_revision=None)
     return GroundedReply(
-        **diagnosis.model_dump(exclude={"answer", "agent_trace"}),
+        **diagnosis_payload,
         answer="\n\n".join(claim.text for claim in claims),
         claims=claims,
         answer_mode=mode,
+        query_scope={"service": service, "start": start, "end": end} if start or end or service else None,
         agent_trace=[
             *diagnosis.agent_trace,
             {"agent": "Incident retrieval", "action": "Retrieve session observations",
-             "metrics": retrieval_counts,
+             "metrics": retrieval_counts, "scope": {"service": service, "start": start, "end": end}, "semantic_status": semantic_status,
              "result": f"Keyword search matched {keyword_count} records. Dependency expansion added {graph_added} records. Semantic search resolved {retrieval_counts['semantic']} records. Retained {retrieval_counts['carried']} previous sources. Supplied {retrieval_counts['distinct']} distinct records."},
-            {"agent": "Grounded chat", "action": "Compose cited answer", "status": status, "metrics": {"model_calls": int(model_attempted)},
+            {"agent": "Grounded chat", "action": "Compose cited answer", "status": status, "provider_status": generation_diagnostics, "metrics": {"model_calls": int(model_attempted)},
              "result": generation_status},
         ],
     )

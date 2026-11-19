@@ -32,8 +32,8 @@ export async function sessionIngest(sessionId, files) {
 }
 
 // ── Session — Query ───────────────────────────────────────────────────────────
-export async function sessionQuery(sessionId, query) {
-  const { data } = await client.post(`/sessions/${sessionId}/query`, { query }, {
+export async function sessionQuery(sessionId, query, scope = {}) {
+  const { data } = await client.post(`/sessions/${sessionId}/query`, { query, ...scope }, {
     timeout: 120_000,
   })
   return data

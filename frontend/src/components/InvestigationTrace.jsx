@@ -27,7 +27,7 @@ const metricLayouts = {
   },
   'Retrieve session observations': {
     agent: 'Incident retrieval',
-    labels: { keyword: 'Keyword matches', semantic: 'Semantic matches', carried: 'Previous sources', distinct: 'Distinct records used', graph: 'Dependency records added' },
+    labels: { keyword: 'Keyword matches', semantic: 'Semantic matches', carried: 'Previous sources', distinct: 'Distinct records used', graph: 'Dependency records added', source_groups: 'Source groups' },
     legacy: /^Keyword search matched (\d+) records\. Semantic search resolved (\d+) records\. Retained (\d+) previous sources\. Supplied (\d+) distinct records\.$/,
   },
   'Compose cited answer': {
@@ -78,6 +78,9 @@ function TraceStep({ step }) {
         <h4 className="text-sm font-medium [overflow-wrap:anywhere]">{step.action || 'Result'}</h4>
         {status && <Badge tone={status.tone}>{status.label}</Badge>}
       </div>
+      {step.provider_status && step.provider_status.status !== 'not_requested' && <p className="mt-2 text-xs text-muted-foreground">Generation · {({validated: 'Validated reply', rate_limited: 'Provider rate limit', timeout: 'Provider timeout', provider_error: 'Provider error', invalid_output: 'Output failed validation', no_answer: 'No answer in the supplied evidence'})[step.provider_status.status] || step.provider_status.status}{step.provider_status.http_status && ` (HTTP ${step.provider_status.http_status})`}</p>}
+      {step.semantic_status && <p className="mt-2 text-xs text-muted-foreground">Semantic search · {({disabled: 'Disabled', not_requested: 'Not needed for this answer', matched: 'Matched indexed sources', no_matches: 'Search succeeded with no matches', error: 'Provider unavailable — local evidence retained', dimension_mismatch: 'Index dimension mismatch', embedding_error: 'Embedding unavailable', unresolved_sources: 'No matching source records in this scope'})[step.semantic_status.status] || step.semantic_status.status}{step.semantic_status.message && ` · ${step.semantic_status.message}`}</p>}
+      {(step.scope?.service || step.scope?.start || step.scope?.end) && <p className="mt-1 break-words text-xs text-muted-foreground">Scope · {step.scope.service || 'All services'} · {step.scope.start || 'Unbounded'} → {step.scope.end || 'Unbounded'} UTC</p>}
       {metrics.length ? (
         <>
           <dl className="trace-metrics mt-2">

@@ -1,0 +1,7 @@
+# Combine with docker-compose.yml. Use isolated ports, project name and data directory.
+services:
+  backend:
+    environment:
+      GEMINI_API_KEY: ""
+      GROQ_API_KEY: ""
+      PINECONE_API_KEY: ""

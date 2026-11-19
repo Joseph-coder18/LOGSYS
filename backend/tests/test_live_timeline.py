@@ -30,6 +30,12 @@ class LiveTimelineTests(IsolatedAsyncioTestCase):
             patcher = patch(f"config.{key}", "")
             patcher.start()
             self.addCleanup(patcher.stop)
+        async def run_inline(function, *args):
+            return function(*args)
+
+        worker = patch("api.routes.run_in_threadpool", run_inline)
+        worker.start()
+        self.addCleanup(worker.stop)
         self.client = AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
         self.addAsyncCleanup(self.client.aclose)
         self.session = (await self.client.post("/api/sessions", json={"name": "Timeline test"})).json()["id"]
@@ -125,6 +131,83 @@ class LiveTimelineTests(IsolatedAsyncioTestCase):
         self.assertEqual(observation["original_timestamp"], "02:30–02:34")
         self.assertIsNone(observation["timestamp"])
         self.assertIsNone(observation["service"])
+
+    async def test_temporal_graph_reuses_source_ids_across_all_modalities_and_reuploads(self):
+        demo = Path(__file__).resolve().parents[1] / "data" / "demo"
+        names = ("demo_app.log", "demo_metrics.json", "context/demo_changes.json", "context/demo_dependencies.json")
+        files = [(Path(name).name, (demo / name).read_bytes()) for name in names]
+        panels = {"panels": [
+            {"panel": "Known sample", "observation": "Latency 420 ms", "service": "user-db",
+             "visible_time_range": "2024-01-15T02:30:00Z"},
+            {"panel": "Time range", "observation": "Latency rises", "service": "user-db",
+             "visible_time_range": "02:30–02:34"},
+        ]}
+        with (
+            patch("config.GEMINI_API_KEY", "test"),
+            patch("services.image_analyzer._read_screenshot", return_value=json.dumps(panels)) as vision,
+        ):
+            uploaded = (await self.upload(*files, ("dashboard.png", b"fixture image"))).json()
+            self.assertEqual(uploaded["observations_added"], 36)
+            graph = (await self.client.get(f"{self.url}/graph")).json()
+            nodes = {node["id"]: node for node in graph["nodes"] if node.get("observation_id")}
+            self.assertEqual(len(nodes), 36)
+            self.assertEqual({node["modality"] for node in nodes.values()}, {"log", "metrics", "change", "image"})
+            self.assertEqual(sum(node["timestamp"] is not None for node in nodes.values()), 35)
+            for observation_id, node in nodes.items():
+                record = (await self.client.get(f"{self.url}/observations/{observation_id}")).json()
+                self.assertEqual(record["source_position"], node["source_position"])
+                self.assertEqual(record["source_file"], node["source_file"])
+            unknown = next(node["id"] for node in nodes.values() if node["source_label"] == "Time range")
+            self.assertFalse(any(unknown in (edge["source"], edge["target"]) for edge in graph["edges"]
+                                 if edge["rel"] in {"precedes", "propagates_to", "supports", "contradicts"}))
+            self.assertEqual((await self.upload(*files, ("dashboard.png", b"fixture image"))).json()["observations_added"], 0)
+            self.assertEqual((await self.client.get(f"{self.url}/graph")).json(), graph)
+            self.assertEqual(vision.call_count, 1)
+
+    async def test_finalize_repairs_legacy_nodes_without_reuploading(self):
+        await self.upload(("old.log", b'2024-01-15T08:01:00+05:30 | auth-service | ERROR | timeout\nservice=auth-service ERROR undated'))
+        events = (await self.client.get(f"{self.url}/observations")).json()["observations"]
+        graph = session_store.get_session_graph(self.session)
+        graph.remove_nodes_from([node for node, attrs in graph.nodes(data=True) if attrs.get("observation_id")])
+        for node in ("log-auth-service-a1234567", "log-auth-service-b1234567"):
+            graph.add_node(node, type="ObservationLog", modality="log", service="auth-service", timestamp=9999999999)
+        graph.add_edge("auth-service", "invented-db", rel="propagates_to", timestamp=9999999999)
+        session_store.save_session_graph(self.session, graph)
+        first = await self.client.post(f"{self.url}/finalize")
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual((await self.client.post(f"{self.url}/finalize")).json(), first.json())
+        repaired = (await self.client.get(f"{self.url}/graph")).json()
+        observations = {node["id"]: node for node in repaired["nodes"] if node.get("observation_id")}
+        self.assertEqual(set(observations), {event["id"] for event in events})
+        dated = next(node for node in observations.values() if node["timestamp"] is not None)
+        self.assertTrue(dated["utc_timestamp"].startswith("2024-01-15T02:31:00"))
+        self.assertTrue(any(node["timestamp"] is None for node in observations.values()))
+        self.assertFalse(any(node["id"].startswith("log-auth-service-") for node in repaired["nodes"]))
+
+    async def test_correlation_keeps_multiple_relations_and_numeric_ids_out_of_metrics(self):
+        log = {"timestamp": "2024-01-15T02:30:00Z", "service": "auth-service", "level": "ERROR",
+               "message": "Queue unavailable", "request_id": 1234}
+        metric = {"timestamp": "2024-01-15T02:30:05Z", "service": "auth-service", "cpu_percent": 20, "request_id": 1234}
+        await self.upload(("app.log", json.dumps(log).encode()), ("metrics.json", json.dumps([metric]).encode()))
+        graph = (await self.client.get(f"{self.url}/graph")).json()
+        self.assertEqual({edge["rel"] for edge in graph["edges"] if edge.get("derived_by") == "temporal_edges"},
+                         {"precedes", "supports"})
+        source = next(node for node in graph["nodes"] if node.get("modality") == "metrics" and node.get("observation_id"))
+        self.assertEqual(source["metric_values"], {"cpu_percent": 20})
+        first = (await self.client.post(f"{self.url}/finalize")).json()
+        self.assertEqual(first["precedes"], 1)
+        self.assertEqual(first["supports"], 1)
+        self.assertEqual((await self.client.post(f"{self.url}/finalize")).json(), first)
+
+    async def test_teammate_log_fixture_retains_explicit_calls_and_compute_mentions(self):
+        fixture = Path(__file__).resolve().parents[2] / "demo_logs.txt"
+        await self.upload((fixture.name, fixture.read_bytes()))
+        graph = (await self.client.get(f"{self.url}/graph")).json()
+        calls = {(edge["source"], edge["target"]) for edge in graph["edges"] if edge["rel"] == "depends_on"}
+        self.assertIn(("frontend", "auth"), calls)
+        self.assertIn(("frontend", "orders"), calls)
+        self.assertTrue(any(edge["target"] == "node-089" and edge["rel"] == "mentions" for edge in graph["edges"]))
+        self.assertTrue(any(edge["rel"] == "propagates_to" for edge in graph["edges"]))
 
     async def test_dependency_question_retrieves_exact_record_past_keyword_budget(self):
         from services.incident_retrieval import query_terms, retrieve_question_records

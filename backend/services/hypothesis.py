@@ -25,6 +25,7 @@ import networkx as nx
 
 from models import ClaimVerification, HypothesisCheck
 from services.graph_store import _resolve_graph
+from services.temporal_edges import edge_relations
 
 logger = logging.getLogger("logmind.hypothesis")
 
@@ -62,7 +63,7 @@ def _score_temporal_consistency(
     temporal_rels = {"precedes", "propagates_to"}
     temporal_edges = [
         (u, v) for u, v, d in graph.edges(data=True)
-        if d.get("rel") in temporal_rels
+        if edge_relations(d) & temporal_rels
     ]
     temp_graph = nx.DiGraph()
     temp_graph.add_nodes_from(graph.nodes())
@@ -117,13 +118,15 @@ def _score_cross_modal_support(
         for n in path_nodes
         if graph.nodes[n].get("modality")
     }
-    score = min(len(modalities) / 2.0, 1.0)
+    groups = {graph.nodes[node].get("provenance_group") or f"unclassified:{node}" for node in path_nodes if graph.nodes[node].get("modality")}
+    support_count = min(len(modalities), len(groups))
+    score = min(support_count / 2.0, 1.0)
     check = HypothesisCheck(
         criterion="Cross-modal support",
-        outcome="supports" if len(modalities) >= 2 else ("missing" if not modalities else "missing"),
+        outcome="supports" if support_count >= 2 else ("missing" if not modalities else "missing"),
         detail=(
             f"Found {len(modalities)} modality/modalities on path: {', '.join(sorted(modalities)) or 'none'}. "
-            "At least 2 are needed for full cross-modal support."
+            f"Across {len(groups)} source group(s). Shared telemetry streams count once."
         ),
     )
     return score, check
@@ -135,7 +138,7 @@ def _score_contradiction(
     """Return 0 if any 'contradicts' edge touches the source or target, else 1."""
     contradicts_edges = [
         (u, v) for u, v, d in graph.edges(data=True)
-        if d.get("rel") == "contradicts"
+        if "contradicts" in edge_relations(d)
     ]
     endpoint_nodes = set(_service_nodes(graph, source)) | set(_service_nodes(graph, target))
     endpoint_nodes.add(source)

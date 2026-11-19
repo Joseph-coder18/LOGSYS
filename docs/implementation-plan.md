@@ -1,7 +1,9 @@
 # LogMind‑X Implementation Plan – Phases 2‑5
 
 ## Overview
-This document outlines the concrete steps required to complete **Phases 2‑5** of the LogMind‑X project. It builds on the completed Phase 1 (Temporal Evidence Graph) and details code changes, UI updates, testing, documentation, and verification metrics for each remaining phase.
+This document records the team's proposed tasks for the next LogMind-X milestones. The Phase 1 graph workflow is implemented, with parser, provenance, retrieval, and final verification checks still open in the project-level `LOGSYS_IMPLEMENTATION_PLAN.md`. The review on 19 November 2026 confirmed 57 backend tests and five graph tests passing.
+
+Use the original project plan's phase numbering when assigning work. The counterfactual-remediation section below maps to its Phase 5. Evaluation and rehearsal map to Phase 4. UI integration and polish span the implementation phases. The task lists below remain proposals for the separate experimental endpoints until they are reconciled with the existing incident-verification workflow.
 
 ---
 
@@ -69,3 +71,7 @@ This document outlines the concrete steps required to complete **Phases 2‑5*
 ---
 
 *Prepared by Antigravity – ready for you to review and start work.*
+
+## Canonical close-out status · 19 November 2026
+
+Use [LOGSYS_IMPLEMENTATION_PLAN.md](../LOGSYS_IMPLEMENTATION_PLAN.md) for the current Phase 0–1 completion checklist and canonical phase numbering, and [TESTING.md](../TESTING.md) section 5 for verification. The implementation and offline regressions are in place. Clean installation, Docker boot/restart, final live providers/extraction-v2, the restarted-backend browser pass and branch review/merge remain open. Experimental claim, policy and remediation scaffolds do not close those gates.

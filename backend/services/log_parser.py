@@ -41,7 +41,7 @@ _APACHE_LOG = re.compile(
 _EXCEPTION_RE = re.compile(r"\b([A-Z][a-zA-Z]*(?:Exception|Error|Timeout|Failure))\b")
 _HTTP_RE      = re.compile(r"\b([45]\d{2})\b")
 _ENDPOINT_RE  = re.compile(r'(?:GET|POST|PUT|DELETE|PATCH)\s+(/[^\s"\']+)', re.IGNORECASE)
-_SERVICE_RE   = re.compile(r'(?:service|component|module|app)[=:\s"\']+([a-zA-Z0-9_-]+)', re.IGNORECASE)
+_SERVICE_RE   = re.compile(r'(?<![\w-])(?:service|component|module|app)[=:\s"\']+([a-zA-Z0-9_-]+)', re.IGNORECASE)
 _DB_RE        = re.compile(
     r'\b(mysql|postgres(?:ql)?|redis|mongodb|sqlite|elasticsearch|cassandra|dynamodb|user-db|auth-db|[a-zA-Z0-9_-]+-db)\b',
     re.IGNORECASE,

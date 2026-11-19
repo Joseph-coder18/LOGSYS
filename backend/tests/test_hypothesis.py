@@ -3,17 +3,11 @@ Unit tests for hypothesis.verify_claim() – Phase 2 / Objective 2.
 """
 from __future__ import annotations
 
-import sys
-import types
-
-# ── Minimal stubs ─────────────────────────────────────────────────────────────
-for mod in ["config"]:
-    if mod not in sys.modules:
-        sys.modules[mod] = types.ModuleType(mod)
-
 import networkx as nx
 import pytest
 from unittest.mock import patch
+
+from services.hypothesis import verify_claim
 
 # We'll patch _resolve_graph so we control the graph
 _FAKE_GRAPH: nx.DiGraph = nx.DiGraph()
@@ -24,8 +18,9 @@ def _fake_resolve(session_id):
 
 
 @pytest.fixture(autouse=True)
-def reset():
+def reset(monkeypatch):
     _FAKE_GRAPH.clear()
+    monkeypatch.setattr("services.hypothesis._resolve_graph", _fake_resolve)
     yield
     _FAKE_GRAPH.clear()
 
@@ -37,10 +32,6 @@ def _svc(nid, service, modality="log", severity="INFO"):
 
 def _edge(src, dst, rel="depends_on"):
     _FAKE_GRAPH.add_edge(src, dst, rel=rel)
-
-
-with patch("services.graph_store._resolve_graph", side_effect=_fake_resolve):
-    from services.hypothesis import verify_claim
 
 
 # ── Tests ─────────────────────────────────────────────────────────────────────

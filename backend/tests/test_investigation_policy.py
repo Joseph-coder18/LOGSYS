@@ -3,15 +3,11 @@ Unit tests for investigation_policy – Phase 3 / Objective 3.
 """
 from __future__ import annotations
 
-import sys
-import types
-for mod in ["config"]:
-    if mod not in sys.modules:
-        sys.modules[mod] = types.ModuleType(mod)
-
 import networkx as nx
 import pytest
 from unittest.mock import patch
+
+from services.investigation_policy import detect_deficits, should_abstain, suggest_next
 
 _FAKE_GRAPH: nx.DiGraph = nx.DiGraph()
 
@@ -21,8 +17,9 @@ def _fake_resolve(session_id):
 
 
 @pytest.fixture(autouse=True)
-def reset():
+def reset(monkeypatch):
     _FAKE_GRAPH.clear()
+    monkeypatch.setattr("services.investigation_policy._resolve_graph", _fake_resolve)
     yield
     _FAKE_GRAPH.clear()
 
@@ -30,10 +27,6 @@ def reset():
 def _add(nid, service, modality, severity="INFO"):
     _FAKE_GRAPH.add_node(nid, service=service, modality=modality,
                           severity=severity, type="ObservationLog", timestamp=1000.0)
-
-
-with patch("services.graph_store._resolve_graph", side_effect=_fake_resolve):
-    from services.investigation_policy import detect_deficits, should_abstain, suggest_next
 
 
 def _call_suggest():

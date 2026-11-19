@@ -94,7 +94,7 @@ function ActivityBar({ bucket, peak, onRange, sample }) {
   )
 }
 
-function ActivityChart({ activity, undated, onRange, sample }) {
+function ActivityChart({ activity, undated, intervals, onRange, sample }) {
   const peak = Math.max(1, ...activity.map(bucket => bucket.counts.all))
   return (
     <Card className="side-panel">
@@ -113,6 +113,7 @@ function ActivityChart({ activity, undated, onRange, sample }) {
           </ul>
         </>
       ) : <p className="panel-empty">Upload records with timestamps and timezones to see activity over time.</p>}
+      {intervals > 0 && <p className="mt-2 text-xs text-muted-foreground">{integer.format(intervals)} interval observations are shown in Timeline and Graph. They are excluded from point-event counts.</p>}
       {undated > 0 && <p className="mt-2 text-xs text-muted-foreground">{integer.format(undated)} records without a reliable timestamp are excluded from the chart.</p>}
     </Card>
   )
@@ -120,7 +121,7 @@ function ActivityChart({ activity, undated, onRange, sample }) {
 
 export default function IncidentOverview({ overview, sample, onRange }) {
   if (!overview?.counts.all) return null
-  const { counts, modalities, activity, undated, first_at, last_at, services } = overview
+  const { counts, modalities, activity, undated, intervals, first_at, last_at, services } = overview
   return (
     <section className="mb-4" aria-label="Telemetry overview">
       <div className="telemetry-heading">
@@ -136,7 +137,7 @@ export default function IncidentOverview({ overview, sample, onRange }) {
         ].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{integer.format(value)}</dd></div>)}
       </dl>
       <div className="telemetry-charts">
-        <ActivityChart activity={activity} undated={undated} onRange={onRange} sample={sample} />
+        <ActivityChart activity={activity} undated={undated} intervals={intervals} onRange={onRange} sample={sample} />
         <SourceMix counts={modalities} total={counts.all} />
       </div>
     </section>

@@ -100,9 +100,9 @@ export default function IncidentChat({ sample, hasTelemetry, messages, running, 
     <section className="incident-chat" aria-labelledby="incident-chat-heading">
       <header className="chat-panel-heading">
         <h2 id="incident-chat-heading"><MessagesSquare size={16} /> Incident chat</h2>
-        {sample && (
+        {(sample || hasTelemetry) && (
           <div className="flex flex-wrap items-center gap-2">
-            <Badge tone="warning">Canned replies</Badge>
+            {sample && <Badge tone="warning">Canned replies</Badge>}
             <Button variant="ghost" size="sm" onClick={resetChat} disabled={!messages.length && !question.trim() && !running}><RotateCcw /> Reset chat</Button>
           </div>
         )}

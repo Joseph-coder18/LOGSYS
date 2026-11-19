@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import networkx as nx
+from services.session_store import session_graph_lock
 
 logger = logging.getLogger("logmind.graph_store")
 
@@ -87,9 +88,10 @@ def add_entity(
     **attrs: Any,
 ) -> None:
     """Add or update a node. Writes to session graph if session_id given."""
-    graph, is_session = _resolve_graph(session_id)
-    graph.add_node(name, type=entity_type, **attrs)
-    _persist(graph, session_id)
+    with session_graph_lock(session_id):
+        graph, is_session = _resolve_graph(session_id)
+        graph.add_node(name, type=entity_type, **attrs)
+        _persist(graph, session_id)
 
 
 def add_relationship(
@@ -100,9 +102,10 @@ def add_relationship(
     **attrs: Any,
 ) -> None:
     """Add a directed edge. Writes to session graph if session_id given."""
-    graph, is_session = _resolve_graph(session_id)
-    graph.add_edge(src, dst, rel=rel_type, **attrs)
-    _persist(graph, session_id)
+    with session_graph_lock(session_id):
+        graph, is_session = _resolve_graph(session_id)
+        graph.add_edge(src, dst, rel=rel_type, **attrs)
+        _persist(graph, session_id)
 
 
 def get_neighbors(
@@ -123,6 +126,20 @@ def get_neighbors(
 
 # ── Serialization for API ─────────────────────────────────────────────────────
 
+def serialize_graph(graph: nx.DiGraph) -> dict[str, Any]:
+    """Expose simultaneous temporal relations as individually labelled API edges."""
+    edges = []
+    for source, target, data in graph.edges(data=True):
+        attrs = {key: value for key, value in data.items() if key != "temporal_relations"}
+        relations = data.get("temporal_relations") or {data.get("rel", "related_to"): {}}
+        for relation, details in relations.items():
+            edges.append({**attrs, **details, "source": source, "target": target, "rel": relation})
+    return {
+        "nodes": [{"id": node, **attrs} for node, attrs in sorted(graph.nodes(data=True), key=lambda item: str(item[0]))],
+        "edges": sorted(edges, key=lambda edge: (str(edge["source"]), str(edge["target"]), edge["rel"])),
+    }
+
+
 def get_graph_json(session_id: str | None = None) -> dict[str, Any]:
     """Serialize graph to JSON-safe dict. Uses session graph if session_id given."""
     if session_id is not None:
@@ -131,11 +148,7 @@ def get_graph_json(session_id: str | None = None) -> dict[str, Any]:
 
         graph = get_session_graph_json(session_id)
         return add_topology(graph, load_dependencies(_session_dir(session_id)))
-    g = _graph
-    return {
-        "nodes": [{"id": n, **data} for n, data in g.nodes(data=True)],
-        "edges": [{"source": u, "target": v, **data} for u, v, data in g.edges(data=True)],
-    }
+    return serialize_graph(_graph)
 
 
 def get_stats(session_id: str | None = None) -> dict[str, int]:

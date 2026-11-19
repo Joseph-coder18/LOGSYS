@@ -6,6 +6,7 @@ Initializes lazily so the app starts cleanly even without API keys.
 from __future__ import annotations
 
 import logging
+from threading import Lock
 from typing import Any, Optional
 
 from models import BaseChunk
@@ -14,13 +15,20 @@ from config import PINECONE_API_KEY, PINECONE_INDEX_NAME, EMBEDDING_DIM
 logger = logging.getLogger("logmind.pinecone_store")
 
 # ── Module state ──────────────────────────────────────────────────────────────
+_connection_lock = Lock()
 _index = None          # Pinecone Index object
+_init_failure: dict = {}
 _initialized = False   # True once we've successfully connected
 
 
 def _get_index():
+    with _connection_lock:
+        return _initialize_index()
+
+
+def _initialize_index():
     """Lazy-init: connect to Pinecone and return the Index object."""
-    global _index, _initialized
+    global _index, _initialized, _init_failure
 
     if _initialized:
         return _index
@@ -33,7 +41,7 @@ def _get_index():
     try:
         from pinecone import Pinecone, ServerlessSpec
 
-        pc = Pinecone(api_key=PINECONE_API_KEY)
+        pc = Pinecone(api_key=PINECONE_API_KEY, timeout=10.0)
 
         # Create index if it doesn't exist
         existing = [idx.name for idx in pc.list_indexes()]
@@ -44,14 +52,23 @@ def _get_index():
                 dimension=EMBEDDING_DIM,
                 metric="cosine",
                 spec=ServerlessSpec(cloud="aws", region="us-east-1"),
+                timeout=30,
             )
 
-        _index = pc.Index(PINECONE_INDEX_NAME)
+        description = pc.describe_index(PINECONE_INDEX_NAME)
+        actual = description.dimension
+        if actual != EMBEDDING_DIM:
+            _init_failure = {"status": "dimension_mismatch", "expected_dimension": EMBEDDING_DIM, "actual_dimension": actual,
+                             "message": f"Index dimension is {actual}; embeddings require {EMBEDDING_DIM}. Choose a compatible index. Existing data was not changed."}
+            return None
+        _index = pc.Index(PINECONE_INDEX_NAME, timeout=10.0)
+        _init_failure = {}
         _initialized = True
         logger.info("Pinecone index '%s' ready.", PINECONE_INDEX_NAME)
 
     except Exception as exc:
-        logger.error("Pinecone init failed: %s", exc)
+        _init_failure = {"status": "error", "message": "Could not connect to the configured vector index.", "error_type": type(exc).__name__}
+        logger.error("Pinecone init failed (%s)", type(exc).__name__)
 
     return _index
 
@@ -77,7 +94,7 @@ def upsert_chunks(
     index = _get_index()
     if index is None:
         logger.warning("Pinecone not available — skipping upsert of %d chunks.", len(chunks))
-        return {"upserted": 0}
+        return {"upserted": 0, **_unavailable_status()}
 
     if len(chunks) != len(embeddings):
         raise ValueError(f"chunks ({len(chunks)}) and embeddings ({len(embeddings)}) must match")
@@ -111,8 +128,13 @@ def upsert_chunks(
     for i in range(0, len(vectors), BATCH):
         batch = vectors[i : i + BATCH]
         try:
-            index.upsert(vectors=batch, **upsert_kwargs)
-            total_upserted += len(batch)
+            response = index.upsert(vectors=batch, **upsert_kwargs)
+            acknowledged = getattr(response, "upserted_count", None)
+            if acknowledged is None and isinstance(response, dict):
+                acknowledged = response.get("upserted_count")
+            if not isinstance(acknowledged, int) or isinstance(acknowledged, bool) or not 0 <= acknowledged <= len(batch):
+                raise ValueError("Vector index returned no valid acknowledgement.")
+            total_upserted += acknowledged
             logger.debug(
                 "Upserted batch %d/%d (%d vectors) namespace=%s",
                 i // BATCH + 1, (len(vectors) - 1) // BATCH + 1,
@@ -122,70 +144,57 @@ def upsert_chunks(
             logger.error("Upsert batch failed: %s", exc)
 
     logger.info("Upserted %d vectors (namespace=%s).", total_upserted, namespace or "global")
-    return {"upserted": total_upserted}
+    return {"upserted": total_upserted, "status": "ready" if total_upserted == len(chunks) else "partial", "message": "Some vector batches failed. Retry is safe because vector IDs are stable." if total_upserted != len(chunks) else "Indexing complete."}
 
 
-def query(
-    embedding: list[float],
-    top_k: int = 5,
-    filter_dict: Optional[dict] = None,
-    namespace: str | None = None,
-) -> list[dict[str, Any]]:
-    """
-    Query Pinecone for the top-K most similar vectors.
+def _unavailable_status() -> dict:
+    if not PINECONE_API_KEY:
+        return {"status": "disabled", "message": "Vector retrieval is disabled because credentials are missing."}
+    return _init_failure or {"status": "error", "message": "Vector index is unavailable."}
 
-    Args:
-        embedding:   Query vector.
-        top_k:       Number of results.
-        filter_dict: Optional metadata filter.
-        namespace:   Pinecone namespace (session_id for session isolation).
 
-    Returns:
-        List of dicts with keys: id, score, metadata, snippet.
-    """
+def query_with_status(embedding: list[float], top_k: int = 5, filter_dict: Optional[dict] = None,
+                      namespace: str | None = None) -> dict:
+    """A successful empty search is distinct from a disabled or failed search."""
     index = _get_index()
     if index is None:
-        logger.warning("Pinecone not available — returning empty results.")
-        return []
-
+        return {"matches": [], **_unavailable_status()}
+    if len(embedding) != EMBEDDING_DIM:
+        return {"matches": [], "status": "dimension_mismatch", "expected_dimension": EMBEDDING_DIM,
+                "actual_dimension": len(embedding), "message": "Query embedding has an incompatible dimension."}
     try:
-        kwargs: dict[str, Any] = {
-            "vector":           embedding,
-            "top_k":            top_k,
-            "include_metadata": True,
-        }
+        kwargs = {"vector": embedding, "top_k": top_k, "include_metadata": True}
         if filter_dict:
             kwargs["filter"] = filter_dict
         if namespace:
             kwargs["namespace"] = namespace
-
         response = index.query(**kwargs)
-        results = []
-        for match in response.matches:
-            results.append({
-                "id":       match.id,
-                "score":    round(match.score, 4),
-                "metadata": match.metadata or {},
-                "snippet":  (match.metadata or {}).get("text_snippet", ""),
-            })
-        return results
-
+        matches = [{"id": match.id, "score": round(match.score, 4), "metadata": match.metadata or {},
+                    "snippet": (match.metadata or {}).get("text_snippet", "")} for match in response.matches]
+        return {"matches": matches, "status": "matched" if matches else "no_matches"}
     except Exception as exc:
-        logger.error("Pinecone query failed: %s", exc)
-        return []
+        logger.warning("Vector retrieval failed (%s).", type(exc).__name__)
+        return {"matches": [], "status": "error", "message": "Vector query failed. Local evidence remains available.", "error_type": type(exc).__name__}
+
+
+def query(embedding: list[float], top_k: int = 5, filter_dict: Optional[dict] = None,
+          namespace: str | None = None) -> list[dict[str, Any]]:
+    """Compatibility interface; diagnostics-aware callers use query_with_status."""
+    return query_with_status(embedding, top_k, filter_dict, namespace)["matches"]
 
 
 def get_stats() -> dict[str, Any]:
     """Return index stats (vector count, etc.)."""
     index = _get_index()
     if index is None:
-        return {"status": "disabled"}
+        return _unavailable_status()
     try:
         stats = index.describe_index_stats()
         return {
+            "status": "ready",
             "total_vector_count": stats.total_vector_count,
             "dimension":          stats.dimension,
             "index_name":         PINECONE_INDEX_NAME,
         }
     except Exception as exc:
-        return {"error": str(exc)}
+        return {"status": "error", "error_type": type(exc).__name__}

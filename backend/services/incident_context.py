@@ -133,7 +133,12 @@ def add_topology(graph: dict, dependencies: list[dict]) -> dict:
         }
         for edge in dependencies
     ]
-    return {"nodes": list(nodes.values()), "edges": [*graph["edges"], *edges]}
+    declared_pairs = {(edge["source"], edge["target"]) for edge in edges}
+    existing_edges = [
+        edge for edge in graph["edges"]
+        if edge.get("rel") != "depends_on" or (edge["source"], edge["target"]) not in declared_pairs
+    ]
+    return {"nodes": list(nodes.values()), "edges": [*existing_edges, *edges]}
 
 
 def potential_impact(session_dir: Path, service: str) -> dict:

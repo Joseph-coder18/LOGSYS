@@ -30,11 +30,12 @@ def query_terms(question: str) -> list[str]:
 
 def retrieve_question_records(
     session_dir: Path, terms: list[str], *, use_graph: bool = True,
+    services: list[str] | None = None, start: str | None = None, end: str | None = None,
 ) -> tuple[list[Observation], int, int, list[dict]]:
     """Spend the same record budget with or without directed dependency expansion."""
     if not terms:
         return [], 0, 0, []
-    keywords = search_observations(session_dir, terms, QUESTION_RECORD_LIMIT)
+    keywords = search_observations(session_dir, terms, QUESTION_RECORD_LIMIT, services=services, start=start, end=end)
     words = set(terms)
     outward = bool(words & _DEPENDENCIES)
     inward = bool(words & _CALLERS)
@@ -48,13 +49,13 @@ def retrieve_question_records(
         caller, callee = edge["caller"].lower(), edge["callee"].lower()
         service_names.update((caller, callee))
         seed, target = (caller, callee) if outward else (callee, caller)
-        if seed in words:
+        if seed in words and (not services or seed in {name.lower() for name in services}):
             targets[target] = None
             links.append({**edge, "retrieval_service": target})
     if not targets:
         return keywords, len(keywords), 0, []
     signal_terms = [term for term in terms if term not in _DEPENDENCIES | _CALLERS | service_names]
-    neighbors = search_observations(session_dir, signal_terms, 3, services=list(targets))
+    neighbors = search_observations(session_dir, signal_terms, 3, services=list(targets), start=start, end=end)
     records = list({event.id: event for event in [*neighbors, *keywords]}.values())[:QUESTION_RECORD_LIMIT]
     original_ids = {event.id for event in keywords}
     return records, len(keywords), sum(event.id not in original_ids for event in records), links[:8]
@@ -64,27 +65,37 @@ def semantic_retrieval_enabled() -> bool:
     return bool(config.GEMINI_API_KEY and config.PINECONE_API_KEY)
 
 
-def retrieve_semantic(session_dir: Path, question: str, terms: list[str]) -> list[Observation]:
+def retrieve_semantic(session_dir: Path, question: str, terms: list[str], *, services: list[str] | None = None, start: str | None = None, end: str | None = None, diagnostics: dict | None = None) -> list[Observation]:
     """Resolve Pinecone hits back to exact records. Pinecone snippets never serve as citations."""
     from services.embedder import embed_query
     from services.pinecone_store import query
 
     vector = embed_query(question)
     if len(vector) != config.EMBEDDING_DIM or not any(vector) or not all(isfinite(value) for value in vector):
+        if diagnostics is not None:
+            diagnostics.update(status="embedding_error", message="No valid query embedding was returned.")
         return []
 
-    hits = query(vector, top_k=5, namespace=session_dir.name)
+    if diagnostics is not None:
+        from services.pinecone_store import query_with_status
+        result = query_with_status(vector, top_k=5, namespace=session_dir.name)
+        diagnostics.update({key: value for key, value in result.items() if key != "matches"})
+        hits = result["matches"]
+    else:
+        hits = query(vector, top_k=5, namespace=session_dir.name)
     for_hit = {}
     for hit in hits:
         meta = hit.get("metadata") or {}
         digest, filename = meta.get("source_digest"), meta.get("source_file")
         if not isinstance(digest, str) or not isinstance(filename, str):
             continue
-        start, end = meta.get("start_line", 1), meta.get("end_line", 2**31 - 1)
-        if not isinstance(start, (int, float)) or not isinstance(end, (int, float)):
+        line_start, line_end = meta.get("start_line", 1), meta.get("end_line", 2**31 - 1)
+        if not isinstance(line_start, (int, float)) or not isinstance(line_end, (int, float)):
             continue
-        for observation in search_observations(session_dir, terms, 2, (digest, filename, start, end)):
+        for observation in search_observations(session_dir, terms, 2, (digest, filename, line_start, line_end), services=services, start=start, end=end):
             for_hit.setdefault(observation.id, observation)
         if len(for_hit) >= 5:
             break
+    if diagnostics is not None and hits and not for_hit:
+        diagnostics.update(status="unresolved_sources", message="Vector hits did not resolve to uploaded records in the selected scope and source version.")
     return list(for_hit.values())[:5]

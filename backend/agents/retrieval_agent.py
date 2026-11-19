@@ -114,8 +114,8 @@ class RetrievalAgent(BaseAgent):
         self._trace("pinecone_search", f"Retrieved {len(matches)} vector matches")
 
         # ── Step 3: Demo fallback for legacy global queries ─────────────────
-        if not matches and session_id is None:
-            self._trace("fallback_triggered", "Pinecone empty — loading demo data directly")
+        if not matches and session_id is None and inputs.get("demo") is True:
+            self._trace("fallback_triggered", "Explicit synthetic demo requested — loading fixture evidence")
             matches = _load_demo_fallback()
             self._trace("demo_fallback", f"Loaded {len(matches)} evidence items from demo files")
 

@@ -8,7 +8,6 @@ from __future__ import annotations
 import csv
 from collections import defaultdict, deque
 import json
-from math import isfinite
 from statistics import mean, pstdev
 import logging
 from pathlib import Path
@@ -16,6 +15,7 @@ from typing import Any
 
 from models import BaseChunk, Observation
 from services.observations import normalize_timestamp
+from services.metric_units import normalize_metrics
 
 logger = logging.getLogger("logmind.metrics_parser")
 
@@ -29,7 +29,6 @@ _THRESHOLDS: dict[str, float] = {
     "db_latency_ms":  500.0,
     "api_latency_ms": 1000.0,
     "latency_ms":     1000.0,
-    "latency":        1000.0,
 }
 
 
@@ -84,17 +83,7 @@ def _field(record: dict, names: set[str]) -> str | None:
 
 
 def _metric_values(record: dict) -> dict[str, float]:
-    values = {}
-    for key, raw in record.items():
-        if key.lower() in _TIME_FIELDS | _SERVICE_FIELDS or isinstance(raw, bool):
-            continue
-        try:
-            value = float(raw)
-        except (ValueError, TypeError):
-            continue
-        if isfinite(value):
-            values[key] = value
-    return values
+    return normalize_metrics(record)[0]
 
 
 def _detect_anomalies(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -109,7 +98,10 @@ def _detect_anomalies(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for utc, index, timestamp, record in sorted(prepared, key=lambda row: (row[0] is None, row[0], row[1])):
         service = _field(record, _SERVICE_FIELDS)
         for key, value in _metric_values(record).items():
-            previous = history[(service, key, utc is not None)]
+            identity = (service, key, utc is not None)
+            # At most one historical value per distinct instant. Equal-time readings
+            # cannot establish earlier samples or inflate a sparse baseline.
+            previous = [reading for instant, reading in history[identity] if utc and instant < utc]
             threshold = _THRESHOLDS.get(key.lower())
             reason = None
             if threshold is not None and value > threshold:
@@ -117,9 +109,15 @@ def _detect_anomalies(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
             elif len(previous) >= 3:
                 baseline = mean(previous)
                 deviation = pstdev(previous)
-                if deviation and abs(value - baseline) / deviation > 2.5:
+                tolerance = max(abs(baseline) * 0.10, 1.0 if key != "error_rate" else 0.01)
+                if abs(value - baseline) > max(2.5 * deviation, tolerance):
                     reason = f"deviation from preceding samples (mean={baseline:g})"
-            previous.append(value)
+            if utc:
+                samples = history[identity]
+                if samples and samples[-1][0] == utc:
+                    samples[-1] = (utc, value)
+                else:
+                    samples.append((utc, value))
             if reason:
                 anomalies.append({
                     "row": index,
@@ -179,8 +177,8 @@ def parse_metrics(file_path: str | Path) -> tuple[list[BaseChunk], list[Observat
 
     observations = []
     for index, record in enumerate(records):
-        values = _metric_values(record)
-        if not values:
+        values, units, warnings = normalize_metrics(record)
+        if not values and not warnings:
             continue
         original = _field(record, _TIME_FIELDS)
         flagged = by_row[index]
@@ -191,10 +189,13 @@ def parse_metrics(file_path: str | Path) -> tuple[list[BaseChunk], list[Observat
             service=_field(record, _SERVICE_FIELDS),
             timestamp=normalize_timestamp(original),
             original_timestamp=original,
-            summary=", ".join(f"{key}={value:g}" for key, value in values.items())[:500],
+            summary=", ".join(f"{key}={value:g}" for key, value in values.items())[:500] or "No usable metric readings; inspect source warnings.",
             excerpt=json.dumps(record, ensure_ascii=False),
             anomalies=[f'{item["field"]}: {item["reason"]}' for item in flagged],
             metric_values=values,
+            metric_units=units,
+            quality_warnings=warnings,
+            stream_id=str(record["stream_id"]) if isinstance(record.get("stream_id"), str) and record["stream_id"].strip() else None,
             anomaly_fields=[item["field"] for item in flagged],
         ))
 

@@ -1,0 +1,11 @@
+**/.venv
+**/venv
+**/__pycache__
+**/.pytest_cache
+**/*.pyc
+.env
+*.env
+data/sessions
+data/*.gpickle
+**/*.sqlite3*
+.git

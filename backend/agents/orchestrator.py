@@ -31,7 +31,7 @@ class Orchestrator:
         self.rca       = RCAAgent()
         self.logger    = logging.getLogger("logmind.orchestrator")
 
-    def run(self, query: str, session_id: str | None = None) -> RCAOutput:
+    def run(self, query: str, session_id: str | None = None, *, demo: bool = False) -> RCAOutput:
         """
         Execute the full retrieval → analysis pipeline.
 
@@ -50,7 +50,7 @@ class Orchestrator:
 
         # ── Step 1: Retrieval ─────────────────────────────────────────────
         self.logger.info("  → calling RetrievalAgent ...")
-        retrieval_result = self.retrieval.run({"query": query, "session_id": session_id})
+        retrieval_result = self.retrieval.run({"query": query, "session_id": session_id, "demo": demo})
         evidence    = retrieval_result.get("evidence", [])
         graph_nodes = retrieval_result.get("graph_nodes", [])
         merged_trace.extend(retrieval_result.get("trace", []))

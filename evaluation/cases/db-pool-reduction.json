@@ -1,0 +1,25 @@
+{
+  "case_id": "db-pool-reduction-v2",
+  "synthetic": true,
+  "stream_id": "demo/user-db/pool-monitor",
+  "service": "user-db",
+  "start": "2024-01-15T02:27:00Z",
+  "end": "2024-01-15T02:33:30Z",
+  "expected": {
+    "root_service": "user-db",
+    "change_at": "2024-01-15T02:29:15Z",
+    "first_saturation_at": "2024-01-15T02:30:00Z",
+    "latency_peak_ms": 30045.0,
+    "latency_peak_record": 11,
+    "cpu_peak_percent": 96.1,
+    "error_peak_ratio": 0.961
+  },
+  "inputs": {
+    "demo_metrics.json": "5dd2ba5f1d0087565462b73c6cc398e0330430d4515abd5cb84c04c11e5fc3fd",
+    "demo_dashboard.png": "0030451a2974ea7c75e859d22910c9d286b4c5406c472936251149e5fac94260",
+    "demo_app.log": "222a250f42d55da18bb7bbe126313f87f82c5ebe72a3a1911461dcf0db47945b",
+    "context/demo_changes.json": "f18336d63211e288bc549dbca004d19b561f2f14a3e3cea1f4a66f83171ad7d1",
+    "context/demo_dependencies.json": "6ebd3b9c64583b4f6ec9cc7fac822b1527803e66abe6576c6e34ffb99d181ded"
+  },
+  "note": "Evaluation labels only. Never ingest this manifest as incident telemetry."
+}

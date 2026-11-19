@@ -246,9 +246,10 @@ def _cpu_candidates(
     return candidates
 
 
-def verify_incident(session_dir: Path) -> VerifiedRCA:
+def verify_incident(session_dir: Path, *, service: str | None = None, start: str | None = None, end: str | None = None) -> VerifiedRCA:
     revision = evidence_revision(session_dir)
-    events = load_verification_observations(session_dir)
+    events = [event for event in load_verification_observations(session_dir)
+              if (not start or event.timestamp >= start) and (not end or event.timestamp < end)]
     callers = {}
     for edge in load_dependencies(session_dir):
         callers.setdefault(edge["callee"], []).append(edge["caller"])
@@ -260,6 +261,8 @@ def verify_incident(session_dir: Path) -> VerifiedRCA:
             candidates.append(_check_reduction(event, events, callers))
 
     candidates.extend(_cpu_candidates(events, callers))
+    if service:
+        candidates = [candidate for candidate in candidates if candidate.hypotheses[0].service.lower() == service.lower()]
     candidates.sort(key=lambda candidate: candidate.hypotheses[0].score, reverse=True)
     viable = [candidate for candidate in candidates if candidate.decision == "supported"]
     if len(viable) == 1:

@@ -1,5 +1,8 @@
 """Run labelled retrieval and diagnosis checks, with opt-in live provider comparisons."""
 import argparse
+from datetime import datetime, timezone
+import platform
+import subprocess
 import asyncio
 from dataclasses import dataclass
 from hashlib import sha256
@@ -284,8 +287,10 @@ async def evaluate_legacy(client: AsyncClient, calls: list[dict]) -> dict:
                 await asyncio.sleep(2)
         if not retrieved["evidence"]:
             return {"status": "no_vector_matches"}
+        from evaluation_baseline import frozen_graph_context
+        baseline = frozen_graph_context(config.DEMO_DIR, DEMO_QUESTION, retrieved["evidence"])
         arms = {}
-        for name, graph in (("vector_only", []), ("legacy_graph_rag", retrieved["graph_nodes"])):
+        for name, graph in (("vector_only", []), ("legacy_graph_rag", baseline["graph_nodes"])):
             call_start = len(calls)
             start = perf_counter()
             result = await asyncio.to_thread(RCAAgent().run, {
@@ -304,6 +309,8 @@ async def evaluate_legacy(client: AsyncClient, calls: list[dict]) -> dict:
             "status": "review_required", "question": DEMO_QUESTION, "expected_root_service": "user-db",
             "shared_retrieval_ms": latency_ms, "shared_vector_matches": len(retrieved["evidence"]),
             "shared_evidence": retrieved["evidence"],
+            "frozen_baseline": baseline,
+            "shared_generation": {"model": config.LLM_MODEL, "max_tokens": 2048, "timeout_seconds": 60},
             "arms": {**arms, "logmind_x": {
                 "end_to_end_ms": round((perf_counter() - start) * 1000, 3),
                 "model_attempts": clean.agent_trace[-1]["metrics"]["model_calls"],
@@ -342,9 +349,15 @@ def provider_status(live: bool) -> dict:
     }
 
 
+async def _benchmark_ingest_step(function, *args):
+    """Sequential in-process ASGI benchmark; HTTP worker scheduling is not measured."""
+    return function(*args)
+
+
 async def evaluate(live: bool, provider_gap_seconds: float = 0) -> dict:
     meter = ProviderCalls(provider_gap_seconds)
     with (
+        patch("api.routes.run_in_threadpool", _benchmark_ingest_step),
         patch.object(grounded_chat, "generate_text", meter.wrap("text", grounded_chat.generate_text)),
         patch.object(rca_agent, "generate_text", meter.wrap("text", rca_agent.generate_text)),
         patch.object(image_analyzer, "_read_screenshot", meter.wrap("vision", image_analyzer._read_screenshot)),
@@ -411,7 +424,16 @@ async def _evaluate(live: bool, meter: ProviderCalls) -> dict:
         for arm in retrieval_cases[0]["answers"]
         if (results := [row["answers"][arm] for row in retrieval_cases])
     }
+    from evaluation_baseline import frozen_graph_context
+    baseline = frozen_graph_context(config.DEMO_DIR, DEMO_QUESTION, [{"id": "fixture-source", "score": 1., "metadata": {"services": "user-db, auth-service, api-gateway"}, "snippet": "Aligned synthetic fixture context only"}])
+    fixture_files = [*config.DEMO_DIR.glob("*.json"), *config.DEMO_DIR.glob("*.log"), *config.DEMO_DIR.glob("*.png"), *config.DEMO_DIR.glob("context/*.json")]
     return {
+        "run": {"at": datetime.now(timezone.utc).isoformat(), "python": platform.python_version(),
+                "git_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+                "git_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], text=True).strip()),
+                "runtime_source_sha256": {str(path.relative_to(Path(__file__).parent)): sha256(path.read_bytes()).hexdigest() for path in [*Path(__file__).parent.glob("*.py"), *(source for folder in ("services", "agents", "api") for source in (Path(__file__).parent / folder).glob("*.py"))]},
+                "fixture_sha256": {str(path.relative_to(config.DEMO_DIR)): sha256(path.read_bytes()).hexdigest() for path in fixture_files}},
+        "frozen_baseline_preflight": baseline,
         "providers": providers, "model": config.LLM_MODEL if live else None,
         "question_record_limit": QUESTION_RECORD_LIMIT,
         "provider_gap_seconds": meter.gap_seconds,

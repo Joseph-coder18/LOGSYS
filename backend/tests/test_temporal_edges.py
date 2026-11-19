@@ -6,23 +6,9 @@ filesystem or Pinecone access is required.
 """
 from __future__ import annotations
 
-import sys
-import os
-import types
-
-# ── Minimal stubs so imports don't fail without a full app environment ────────
-for mod in ["config", "models"]:
-    if mod not in sys.modules:
-        m = types.ModuleType(mod)
-        m.LOG_CHUNK_SIZE    = 20       # type: ignore[attr-defined]
-        m.LOG_CHUNK_OVERLAP = 5        # type: ignore[attr-defined]
-        sys.modules[mod] = m
-
 import networkx as nx
 import pytest
-
-# Patch _resolve_graph and _persist so temporal_edges works without session storage
-import services.graph_store as _gs
+from services.temporal_edges import build_temporal_edges, SUPPORT_WINDOW_S, CONTRADICT_WINDOW_S
 
 _FAKE_GRAPH: nx.DiGraph = nx.DiGraph()
 
@@ -35,18 +21,14 @@ def _fake_persist(graph, session_id):
     pass  # no-op
 
 
-_gs._resolve_graph = _fake_resolve  # type: ignore[attr-defined]
-_gs._persist       = _fake_persist  # type: ignore[attr-defined]
-
-from services.temporal_edges import build_temporal_edges, SUPPORT_WINDOW_S, CONTRADICT_WINDOW_S
-
-
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 @pytest.fixture(autouse=True)
-def reset_graph():
+def reset_graph(monkeypatch):
     """Clear the fake graph before each test."""
     _FAKE_GRAPH.clear()
+    monkeypatch.setattr("services.temporal_edges._resolve_graph", _fake_resolve)
+    monkeypatch.setattr("services.temporal_edges._persist", _fake_persist)
     yield
     _FAKE_GRAPH.clear()
 
@@ -127,16 +109,27 @@ def test_supports_same_modality_skipped():
 
 # ── Tests: contradicts ────────────────────────────────────────────────────────
 
-def test_contradicts_error_log_vs_normal_metric():
-    """ERROR log + non-anomalous metric on same service → 'contradicts' edge."""
+def test_normal_metric_does_not_refute_an_unrelated_error():
+    """A normal measurement does not contradict an unrelated error message."""
     _add_obs("n1", "auth", "log",     1000, severity="ERROR")
     _FAKE_GRAPH.add_node("m1", type="ObservationLog", service="auth",
                           modality="metrics", timestamp=1020.0,
                           severity="INFO", anomaly=False)
     counts = build_temporal_edges("test-session")
-    assert counts["contradicts"] == 1
-    assert _FAKE_GRAPH.has_edge("n1", "m1")
-    assert _FAKE_GRAPH["n1"]["m1"]["rel"] == "contradicts"
+    assert counts["contradicts"] == 0
+
+
+def test_conflicting_values_require_the_same_signal_and_instant():
+    _add_obs("n1", "auth", "metrics", 1000)
+    _add_obs("n2", "auth", "metrics", 1000)
+    _FAKE_GRAPH.nodes["n1"]["metric_values"] = {"cpu_percent": 90}
+    _FAKE_GRAPH.nodes["n2"]["metric_values"] = {"cpu_percent": 30}
+    first = build_temporal_edges("test-session")
+    assert first["contradicts"] == 1
+    assert first["precedes"] == 0
+    assert build_temporal_edges("test-session") == first
+    _FAKE_GRAPH.nodes["n2"]["metric_values"] = {"db_latency_ms": 30}
+    assert build_temporal_edges("test-session")["contradicts"] == 0
 
 
 def test_contradicts_outside_window():
@@ -162,15 +155,41 @@ def test_contradicts_different_services():
 
 # ── Tests: empty graph & propagates_to ────────────────────────────────────────
 
-def test_propagates_to_promotion():
-    """Existing depends_on edge with a timestamp is promoted to propagates_to."""
+def test_dependency_stays_structural_without_observed_request_flow():
+    """A timestamp on a dependency cannot establish observed propagation."""
     _FAKE_GRAPH.add_node("auth", type="service", service="auth")
     _FAKE_GRAPH.add_node("orders", type="service", service="orders")
     _FAKE_GRAPH.add_edge("auth", "orders", rel="depends_on", timestamp=1000.0)
 
     counts = build_temporal_edges("test-session")
-    assert counts["propagates_to"] == 1
-    assert _FAKE_GRAPH["auth"]["orders"]["rel"] == "propagates_to"
+    assert counts["propagates_to"] == 0
+    assert _FAKE_GRAPH["auth"]["orders"]["rel"] == "depends_on"
+
+
+def test_observed_target_and_shared_request_link_events():
+    _add_obs("caller", "auth", "log", 1000, req_id="r1")
+    _add_obs("callee", "orders", "log", 1005, req_id="r1")
+    _FAKE_GRAPH.nodes["caller"]["target_service"] = "orders"
+    assert build_temporal_edges("test-session")["propagates_to"] == 1
+
+
+def test_unknown_nonfinite_and_equal_times_cannot_establish_precedence():
+    for node, timestamp in (("unknown", None), ("nan", float("nan")), ("infinite", float("inf"))):
+        _FAKE_GRAPH.add_node(node, modality="log", service="auth", timestamp=timestamp)
+    _add_obs("known1", "auth", "log", 1000)
+    _add_obs("known2", "auth", "log", 1000)
+    assert build_temporal_edges("test-session")["precedes"] == 0
+
+
+def test_late_event_replaces_stale_adjacency():
+    _add_obs("first", "auth", "log", 1000)
+    _add_obs("last", "auth", "log", 1020)
+    build_temporal_edges("test-session")
+    _add_obs("middle", "auth", "log", 1010)
+    assert build_temporal_edges("test-session")["precedes"] == 2
+    assert not _FAKE_GRAPH.has_edge("first", "last")
+    assert _FAKE_GRAPH.has_edge("first", "middle")
+    assert _FAKE_GRAPH.has_edge("middle", "last")
 
 
 def test_empty_graph_returns_zero_counts():

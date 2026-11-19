@@ -57,6 +57,15 @@ class Observation(BaseModel):
     anomalies: list[str] = Field(default_factory=list)
     metric_values: dict[str, float] = Field(default_factory=dict)
     anomaly_fields: list[str] = Field(default_factory=list)
+    metric_units: dict[str, str] = Field(default_factory=dict)
+    metric_aggregations: dict[str, str] = Field(default_factory=dict)
+    metric_readings: list[dict[str, Any]] = Field(default_factory=list)
+    quality_warnings: list[str] = Field(default_factory=list)
+    interval_start: str | None = None
+    interval_end: str | None = None
+    stream_id: str | None = None
+    provenance_group: str | None = None
+    extraction_version: int | None = None
 
 
 ObservationFilter = Literal["all", "anomalies", "changes", "errors"]
@@ -90,6 +99,7 @@ class IncidentOverview(BaseModel):
     first_at: str | None = None
     last_at: str | None = None
     undated: int = 0
+    intervals: int = 0
     activity: list[ActivityBucket] = Field(default_factory=list)
 
 
@@ -156,6 +166,7 @@ class ApprovedClaim(BaseModel):
 
 
 class GroundedReply(VerifiedRCA):
+    query_scope: dict[str, str | None] | None = None
     claims: list[ApprovedClaim] = Field(default_factory=list)
     answer_mode: Literal["generated", "extractive", "local"] = "local"
 
@@ -190,7 +201,7 @@ class CreateSessionRequest(BaseModel):
 # ── LogMind-X models (feature/logmind-x-full) ────────────────────────────────
 
 class TemporalEdgeCounts(BaseModel):
-    """Returned by POST /sessions/{id}/finalize — counts of each new edge type."""
+    """Current relation totals after rebuilding POST /sessions/{id}/finalize."""
     precedes:      int = 0
     propagates_to: int = 0
     supports:      int = 0

@@ -24,6 +24,8 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+from functools import wraps
+from services.storage_lock import storage_lock
 from typing import Any
 
 import networkx as nx
@@ -33,6 +35,19 @@ logger = logging.getLogger("logmind.session_store")
 # ── Storage root ──────────────────────────────────────────────────────────────
 _SESSIONS_DIR = Path(__file__).parent.parent / "data" / "sessions"
 _INDEX_PATH   = _SESSIONS_DIR / "index.json"
+
+
+def session_graph_lock(session_id: str | None):
+    """Serialize graph mutations across threads and workers without locking metadata first."""
+    return storage_lock(_SESSIONS_DIR / ".locks" / f"graph-{session_id or 'global'}.lock")
+
+
+def _state_locked(function):
+    @wraps(function)
+    def locked(*args, **kwargs):
+        with storage_lock(_SESSIONS_DIR / ".locks" / "state.lock"):
+            return function(*args, **kwargs)
+    return locked
 
 
 # ── Internal helpers ──────────────────────────────────────────────────────────
@@ -58,19 +73,23 @@ def _now_iso() -> str:
 
 
 def _load_index() -> list[dict]:
-    """Load the sessions index.json (creates empty file if missing)."""
+    """Rebuild the disposable summary index from atomically published metadata."""
     _SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
-    if not _INDEX_PATH.exists():
-        _INDEX_PATH.write_text("[]", encoding="utf-8")
-    try:
-        return json.loads(_INDEX_PATH.read_text(encoding="utf-8"))
-    except Exception:
-        return []
+    entries = []
+    for path in _SESSIONS_DIR.glob("*/meta.json"):
+        try:
+            meta = json.loads(path.read_text(encoding="utf-8"))
+            entries.append({key: meta[key] for key in ("id", "name", "created_at", "files", "node_count", "edge_count")})
+        except (OSError, ValueError, KeyError):
+            logger.warning("Skipping unreadable incident metadata for %s", path.parent.name)
+    entries.sort(key=lambda entry: entry["created_at"], reverse=True)
+    _save_index(entries)
+    return entries
 
 
 def _save_index(entries: list[dict]) -> None:
     _SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
-    _INDEX_PATH.write_text(json.dumps(entries, indent=2), encoding="utf-8")
+    _replace_json(_INDEX_PATH, entries)
 
 
 def _load_meta(session_id: str) -> dict | None:
@@ -83,10 +102,11 @@ def _load_meta(session_id: str) -> dict | None:
         return None
 
 
+@_state_locked
 def _save_meta(meta: dict) -> None:
     sid = meta["id"]
     _session_dir(sid).mkdir(parents=True, exist_ok=True)
-    _meta_path(sid).write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    _replace_json(_meta_path(sid), meta)
     # Sync into index
     index = _load_index()
     summary = {
@@ -104,6 +124,7 @@ def _save_meta(meta: dict) -> None:
 
 # ── Public CRUD ───────────────────────────────────────────────────────────────
 
+@_state_locked
 def create_session(name: str | None = None) -> dict:
     """
     Create a new isolated session.
@@ -125,21 +146,24 @@ def create_session(name: str | None = None) -> dict:
     # Initialise an empty graph on disk
     save_session_graph(session_id, nx.DiGraph())
     # Initialise empty chat history
-    _chat_path(session_id).write_text("[]", encoding="utf-8")
+    _replace_json(_chat_path(session_id), [])
     logger.info("Session created: %s (%s)", session_id, meta["name"])
     return meta
 
 
+@_state_locked
 def get_session(session_id: str) -> dict | None:
     """Return session metadata or None if not found."""
     return _load_meta(session_id)
 
 
+@_state_locked
 def list_sessions() -> list[dict]:
     """Return all sessions sorted newest-first."""
     return _load_index()
 
 
+@_state_locked
 def update_session(session_id: str, **kwargs: Any) -> dict | None:
     """
     Update mutable fields on a session (name, files, node_count, edge_count).
@@ -155,6 +179,7 @@ def update_session(session_id: str, **kwargs: Any) -> dict | None:
     return meta
 
 
+@_state_locked
 def delete_session(session_id: str) -> bool:
     """
     Delete a session and ALL its data (graph, chat history, metadata).
@@ -191,16 +216,28 @@ def get_session_graph(session_id: str) -> nx.DiGraph:
     return nx.DiGraph()
 
 
+@_state_locked
 def save_session_graph(session_id: str, graph: nx.DiGraph) -> None:
     """Persist the graph for a session and sync node/edge counts to meta."""
+    if _load_meta(session_id) is None:
+        return
     _session_dir(session_id).mkdir(parents=True, exist_ok=True)
-    with open(_graph_path(session_id), "wb") as fh:
-        pickle.dump(graph, fh)
+    with NamedTemporaryFile(dir=_session_dir(session_id), delete=False) as temporary:
+        path = Path(temporary.name)
+        try:
+            pickle.dump(graph, temporary)
+        except Exception:
+            path.unlink(missing_ok=True)
+            raise
+    try:
+        path.replace(_graph_path(session_id))
+    finally:
+        path.unlink(missing_ok=True)
     # Sync counts
     meta = _load_meta(session_id)
     if meta:
         meta["node_count"] = graph.number_of_nodes()
-        meta["edge_count"] = graph.number_of_edges()
+        meta["edge_count"] = sum(len(attrs.get("temporal_relations") or {"rel": None}) for _, _, attrs in graph.edges(data=True))
         _save_meta(meta)
     logger.debug(
         "Session graph saved: %s | %d nodes, %d edges",
@@ -210,15 +247,13 @@ def save_session_graph(session_id: str, graph: nx.DiGraph) -> None:
 
 def get_session_graph_json(session_id: str) -> dict[str, Any]:
     """Return graph serialised to JSON-safe dict for the frontend."""
-    g = get_session_graph(session_id)
-    return {
-        "nodes": [{"id": n, **data} for n, data in g.nodes(data=True)],
-        "edges": [{"source": u, "target": v, **data} for u, v, data in g.edges(data=True)],
-    }
+    from services.graph_store import serialize_graph
+    return serialize_graph(get_session_graph(session_id))
 
 
 # ── Chat history helpers ──────────────────────────────────────────────────────
 
+@_state_locked
 def get_session_chat(session_id: str) -> list[dict]:
     """Return the full chat history for a session (list of {role, content, timestamp})."""
     p = _chat_path(session_id)
@@ -230,12 +265,17 @@ def get_session_chat(session_id: str) -> list[dict]:
         return []
 
 
-def append_session_chat(session_id: str, entry: dict, *entries: dict) -> None:
+@_state_locked
+def append_session_chat(session_id: str, entry: dict, *entries: dict, expected_generation: int | None = None) -> bool:
     """Append a chat exchange atomically, retaining compatibility with single entries."""
+    meta = _load_meta(session_id)
+    if meta is None or (expected_generation is not None and meta.get("chat_generation", 0) != expected_generation):
+        return False
     path = _chat_path(session_id)
     history = get_session_chat(session_id)
     history.extend({"timestamp": _now_iso(), **item} for item in (entry, *entries))
     _replace_json(path, history)
+    return True
 
 
 def get_saved_verification(session_id: str) -> dict | None:
@@ -245,6 +285,7 @@ def get_saved_verification(session_id: str) -> dict | None:
         return None
 
 
+@_state_locked
 def save_verification(session_id: str, diagnosis: dict) -> None:
     try:
         _replace_json(_session_dir(session_id) / "verification.json", diagnosis)
@@ -264,6 +305,23 @@ def _replace_json(path: Path, value: Any) -> None:
             temporary_path.unlink(missing_ok=True)
 
 
+@_state_locked
 def clear_session_chat(session_id: str) -> None:
-    """Wipe the chat history for a session."""
-    _chat_path(session_id).write_text("[]", encoding="utf-8")
+    """Wipe history and invalidate replies that started before the reset."""
+    meta = _load_meta(session_id)
+    if meta is None:
+        return
+    meta["chat_generation"] = meta.get("chat_generation", 0) + 1
+    _save_meta(meta)
+    _replace_json(_chat_path(session_id), [])
+
+
+@_state_locked
+def register_session_files(session_id: str, files: list[str]) -> dict | None:
+    """Merge file registration under the same lock as metadata and graph counts."""
+    meta = _load_meta(session_id)
+    if meta is None:
+        return None
+    meta["files"] = list(dict.fromkeys([*meta.get("files", []), *files]))
+    _save_meta(meta)
+    return meta

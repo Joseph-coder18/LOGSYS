@@ -6,31 +6,17 @@
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  React Frontend (Vite)                                          │
-│  Upload Panel │ Query Panel │ Results Panel │ Graph Panel       │
-└──────────────────────┬──────────────────────────────────────────┘
-                       │ HTTP /api/*
-┌──────────────────────▼──────────────────────────────────────────┐
-│  FastAPI Backend                                                 │
-│  ┌─────────────┐  ┌────────────────┐  ┌─────────────────────┐  │
-│  │  Ingestion  │  │   Retrieval    │  │     RCA Agent       │  │
-│  │   Agent     │  │    Agent       │  │  (LlmAgent + ADK)   │  │
-│  └──────┬──────┘  └───────┬────────┘  └──────────┬──────────┘  │
-│         │                 │                       │              │
-│  ┌──────▼──────────────────▼───────────────────────▼──────────┐ │
-│  │               Orchestrator Agent (ADK)                     │ │
-│  └─────────────────────────────────────────────────────────────┘ │
-│                                                                  │
-│  Services:  log_parser │ image_analyzer │ metrics_parser        │
-│             embedder   │ pinecone_store │ graph_store           │
-└──────────────────────────────────────────────────────────────────┘
-         │ embed + upsert                │ NetworkX DiGraph
-┌────────▼────────┐             ┌────────▼────────────────────────┐
-│  Pinecone (v3)  │             │  graph.gpickle (persisted)      │
-│  Vector Search  │             │  NetworkX Knowledge Graph       │
-└─────────────────┘             └─────────────────────────────────┘
+```mermaid
+flowchart TD
+    UI[React investigation workspace] --> API[FastAPI session API]
+    API --> O[Source observations in SQLite]
+    O --> G[Temporal and dependency graph]
+    O --> V[Deterministic hypothesis verifier]
+    API --> R[Keyword and Pinecone retrieval]
+    G --> R
+    V --> C[Cited chat with local fallback]
+    R --> C
+    C --> UI
 ```
 
 ---
@@ -39,15 +25,15 @@
 
 ```bash
 # 1. Clone
-git clone https://github.com/<your-org>/logmind.git
-cd logmind
+git clone https://github.com/Joseph-coder18/LOGSYS.git
+cd LOGSYS
 
 # 2. Configure
 cp .env.example .env
 # Edit .env — add your GEMINI_API_KEY, PINECONE_API_KEY, etc.
 
 # 3. Run
-docker-compose up --build
+docker compose up --build --wait
 
 # Frontend: http://localhost:3000
 # Backend API: http://localhost:8000
@@ -62,27 +48,24 @@ See [TESTING.md](TESTING.md) for the Linux walkthrough, demo fixtures, provider 
 
 ### Backend
 
+Tested runtime is **CPython 3.12 on Linux**, also used by Docker. Use WSL2 or Docker on Windows.
+From the repository root:
+
 ```bash
-cd backend
-
-# Windows PowerShell
-python -m venv ..\.venv
-..\.venv\Scripts\pip install -r requirements.txt
-
-# Copy and fill in your API keys
-cp ../.env.example ../.env
-
-# Start (PowerShell)
-$env:PYTHONPATH = $PWD; ..\.venv\Scripts\uvicorn main:app --port 8000 --reload
-# OR use the --app-dir flag:
-..\.venv\Scripts\uvicorn main:app --app-dir . --port 8000 --reload
+python3.12 -m venv .venv
+.venv/bin/python -m pip install -r backend/requirements-dev.txt
+test -f .env || cp .env.example .env
+.venv/bin/python -m uvicorn main:app --app-dir backend --host 127.0.0.1 --port 8000 --reload
 ```
+
+Provider keys are optional for local telemetry and deterministic source lookups.
+[TESTING.md](TESTING.md) covers Gemini/Pinecone setup, expected demo results and the remaining clean-install/Docker/live verification gates.
 
 ### Frontend
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev
 # Opens at http://localhost:5173
 # Vite proxies /api → http://localhost:8000 automatically
@@ -158,7 +141,7 @@ Phase 1 introduced temporal edge types (`precedes`, `propagates_to`, `supports
 logmind/
 ├── frontend/           React + Vite UI
 ├── backend/
-│   ├── agents/         ADK agent implementations
+│   ├── agents/         Python orchestration and legacy Graph RAG baseline
 │   ├── tools/          Agent tool functions
 │   ├── services/       Core services (parsers, embedder, stores)
 │   ├── api/            FastAPI routes

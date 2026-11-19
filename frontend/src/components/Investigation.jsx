@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { Alert, Badge, Card, Skeleton } from '@/components/ui/surfaces'
 import { InfoTooltip } from '@/components/ui/tooltip'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { sessionChat, latestVerification, sessionGraph, sessionIngest, sessionObservation, sessionObservations, sessionOverview, sessionQuery, verifyIncident, finalizeSession } from '@/services/api'
+import { clearChat, sessionChat, latestVerification, sessionGraph, sessionIngest, sessionObservation, sessionObservations, sessionOverview, sessionQuery, verifyIncident, finalizeSession } from '@/services/api'
 import { SAMPLE_ID, sampleGraph, sampleOverview, samplePrompts, sampleResult } from '@/sample-incident'
 import IncidentSources from './IncidentSources'
 import IncidentChat from './IncidentChat'
@@ -91,8 +91,11 @@ export default function Investigation({ incident, connected, onSessionsChange, o
   const [verification, setVerification] = useState(null)
   const [verifying, setVerifying] = useState(false)
   const [result, setResult] = useState(sample ? sampleResult : null)
+  const [chatResult, setChatResult] = useState(null)
   const [graph, setGraph] = useState(sample ? sampleGraph : emptyGraph)
   const [question, setQuestion] = useState('')
+  const [useTimelineScope, setUseTimelineScope] = useState(false)
+  const chatRequest = useRef(0)
   const [loading, setLoading] = useState(!sample)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState('')
@@ -106,13 +109,15 @@ export default function Investigation({ incident, connected, onSessionsChange, o
   useEffect(() => {
     if (sample) return
     let current = true
-    const requests = [sessionChat(id), sessionGraph(id), sessionObservations(id), sessionOverview(id), latestVerification(id)]
+    const requests = [sessionChat(id), finalizeSession(id).then(() => sessionGraph(id)), sessionObservations(id), sessionOverview(id), latestVerification(id)]
     Promise.allSettled(requests).then(([chat, graphResponse, telemetry, coverage, saved]) => {
       if (!current) return
       if (chat.status === 'fulfilled') {
         const history = chat.value.history || []
         setMessages(history)
-        setResult([...history].reverse().find(message => message.role === 'assistant')?.content || null)
+        const replies = [...history].reverse().filter(message => message.role === 'assistant')
+        setResult(replies.find(message => !message.content?.query_scope)?.content || null)
+        setChatResult(replies[0]?.content || null)
       }
       if (graphResponse.status === 'fulfilled') setGraph(graphResponse.value)
       if (telemetry.status === 'fulfilled') {
@@ -130,14 +135,10 @@ export default function Investigation({ incident, connected, onSessionsChange, o
 
   async function upload(files) {
     const response = await sessionIngest(id, files)
-    if (response.files_processed) {
+    if (response.processed_files?.length) {
+      setChatResult(null)
       ++verificationRequest.current
       setVerifying(false)
-      try {
-        await finalizeSession(id)
-      } catch (err) {
-        console.warn('Finalize session temporal edges failed:', err)
-      }
       const updates = await Promise.allSettled([
         sessionGraph(id).then(setGraph),
         sessionOverview(id).then(setOverview),
@@ -257,8 +258,14 @@ export default function Investigation({ incident, connected, onSessionsChange, o
     setTab(view)
   }
 
-  function resetSampleChat() {
+  async function resetSampleChat() {
+    ++chatRequest.current
+    if (!sample) {
+      try { await clearChat(id) } catch { setRunning(false); setError('Could not reset chat. Try again.'); return }
+    }
     clearTimeout(previewTimer.current)
+    closeChatSource()
+    setChatResult(null)
     setMessages([])
     setQuestion('')
     setRunning(false)
@@ -267,6 +274,7 @@ export default function Investigation({ incident, connected, onSessionsChange, o
   async function ask(input) {
     const query = input.trim()
     if (!query || running || verifying || loading || (!sample && !connected)) return
+    const request = ++chatRequest.current
     setRunning(true)
     setError('')
     setMessages(history => [...history, { role: 'user', content: query }])
@@ -280,15 +288,19 @@ export default function Investigation({ incident, connected, onSessionsChange, o
       return
     }
     try {
-      const response = await sessionQuery(id, query)
-      setResult(response)
+      const scope = useTimelineScope ? Object.fromEntries(['service', 'start', 'end'].filter(key => filters[key]).map(key => [key, filters[key]])) : {}
+      const response = await sessionQuery(id, query, scope)
+      if (request !== chatRequest.current) return
+      setChatResult(response)
+      if (!response.query_scope) setResult(response)
       setMessages(history => [...history, { role: 'assistant', content: response }])
     } catch {
+      if (request !== chatRequest.current) return
       setError('The query failed. You can retry when the backend is available.')
       setQuestion(value => value || query)
       setMessages(history => history.slice(0, -1))
     } finally {
-      setRunning(false)
+      if (request === chatRequest.current) setRunning(false)
     }
   }
 
@@ -304,7 +316,7 @@ export default function Investigation({ incident, connected, onSessionsChange, o
   const timeline = diagnosis?.timeline || []
   const services = diagnosis?.affected_services || []
   const impactedCallers = services.filter(service => service !== diagnosis?.suspected_origin)
-  const traceResult = result?.evidence_revision && result.evidence_revision === diagnosis?.evidence_revision ? result : diagnosis
+  const traceResult = chatResult || (result?.evidence_revision && result.evidence_revision === diagnosis?.evidence_revision ? result : diagnosis)
   const nextCheck = diagnosis?.next_check
   const graphFocus = reference?.view === 'graph' ? reference.node : verifiedDiagnosis?.suspected_origin || services[0]
   const decisions = { supported: 'Supported by evidence', ambiguous: 'Ambiguous', insufficient_evidence: 'Insufficient evidence' }
@@ -445,6 +457,13 @@ export default function Investigation({ incident, connected, onSessionsChange, o
               />
             </TabsContent>
             <TabsContent value="chat">
+              {!sample && <Card className="mb-3 flex flex-wrap items-center gap-2 p-3">
+                <Button size="sm" variant={useTimelineScope ? 'default' : 'outline'} aria-pressed={useTimelineScope} onClick={() => setUseTimelineScope(value => !value)} disabled={running}>Use timeline scope</Button>
+                <p className="min-w-0 break-words text-xs text-muted-foreground">
+                  {useTimelineScope ? `${filters.service || 'All services'} · ${filters.start || 'Start unbounded'} → ${filters.end || 'End unbounded'} (UTC, end exclusive)` : 'Questions use all uploaded evidence. Choose a service and UTC range in Timeline to narrow the search.'}
+                </p>
+                <Button size="sm" variant="ghost" onClick={() => changeTab('timeline')}>Edit scope</Button>
+              </Card>}
               <IncidentChat
                 sample={sample}
                 hasTelemetry={canVerify}

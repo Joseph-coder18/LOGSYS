@@ -7,15 +7,20 @@ import { Button } from '@/components/ui/button'
 import {
   drawGraphEdgeLabel,
   drawGraphNode,
+  drawTemporalLanes,
   edgeColors,
   fitGraph,
   graphInset,
+  graphNodeSource,
+  graphNodeTitle,
   impactDistances,
   layoutImpactNodes,
+  layoutTemporalNodes,
   maxGraphZoom,
   nodeRadius,
   paintNodeTarget,
   relationshipLabel,
+  shouldLabelGraphEdge,
 } from '@/lib/incident-graph'
 
 const minZoom = 0.003
@@ -29,18 +34,28 @@ function serviceNode(graph, service) {
   return graph.nodes.find(node => ['service', 'database'].includes(node.type) && (node.service || node.id) === service)
 }
 
-function SelectedNode({ node, role, edges, labels, impact }) {
+function SelectedNode({ node, role, edges, labels, impact, onObservation }) {
   return (
     <Card className="side-panel graph-selection" id="graph-reference" tabIndex={-1}>
       <div className="side-panel-title flex-wrap">
-        <h2>Selected node · <span className="font-mono">{node.service || node.id}</span></h2>
+        <h2>{node.observation_id ? 'Selected record' : 'Selected node'} · <span className="font-mono">{graphNodeTitle(node)}</span></h2>
         <div className="flex flex-wrap gap-1.5">
           <Badge>{node.type || 'Entity'}</Badge>
           {role && <Badge tone={legend[role].tone}>{legend[role].label}</Badge>}
         </div>
       </div>
+      {node.observation_id && <div className="mb-3 grid gap-2 text-sm">
+        <p>{node.summary}</p>
+        <p className="text-xs text-muted-foreground">
+          {node.source_file} · {node.source_label || `${node.modality === 'log' ? 'line' : 'record'} ${node.source_position}`}
+          {' · '}{node.interval_start && node.interval_end ? `${node.interval_start.slice(0, 19).replace('T', ' ')} → ${node.interval_end.slice(0, 19).replace('T', ' ')} UTC (range)` : node.utc_timestamp ? `${node.utc_timestamp.slice(0, 19).replace('T', ' ')} UTC` : 'Time unknown'}
+        </p>
+        <Button size="sm" variant="outline" className="w-fit" onClick={() => onObservation(node.observation_id)}>
+          Open source in timeline
+        </Button>
+      </div>}
       {edges.length ? (
-        <ul className="grid gap-2 text-xs">
+        <ul className="graph-relationships grid gap-2 text-xs">
           {edges.map((edge, index) => (
             <li key={index} className="rounded-md border border-border bg-background/50 p-2">
               <p className="flex flex-wrap items-center gap-1.5">
@@ -67,8 +82,9 @@ export default function InvestigationGraph({ graph, referenceNode, focusSelectio
   const [layoutVersion, setLayoutVersion] = useState(0)
   const [selectedId, setSelectedId] = useState(() => serviceNode(graph, referenceNode)?.id || referenceNode)
   const [hoveredId, setHoveredId] = useState(null)
+  const [nodeSearch, setNodeSearch] = useState('')
   const [motion, setMotion] = useState(false)
-  const dependencies = useMemo(() => graph.edges.filter(edge => edge.rel === 'depends_on' || edge.rel === 'propagates_to'), [graph])
+  const dependencies = useMemo(() => graph.edges.filter(edge => edge.rel === 'depends_on'), [graph])
   const temporalEdges = useMemo(() => graph.edges.filter(edge => ['precedes', 'supports', 'contradicts', 'propagates_to'].includes(edge.rel)), [graph])
   const origin = serviceNode(graph, suspectedOrigin)?.id
   const distances = useMemo(() => impactDistances(dependencies, origin), [dependencies, origin])
@@ -76,13 +92,14 @@ export default function InvestigationGraph({ graph, referenceNode, focusSelectio
   const activeScope = scope === 'all' || scope === 'temporal' || (scope === 'impact' && hasImpact) || (scope === 'dependencies' && dependencies.length)
     ? scope : hasImpact ? 'impact' : temporalEdges.length ? 'temporal' : dependencies.length ? 'dependencies' : 'all'
   const isImpact = activeScope === 'impact'
+  const isTemporal = activeScope === 'temporal'
   const vertical = width < 510
-  const height = vertical ? 418 : 328
+  const height = isTemporal || activeScope === 'all' ? 460 : vertical ? 418 : 328
   const { nodes, edges } = useMemo(() => {
     if (activeScope === 'all') return { nodes: graph.nodes, edges: graph.edges }
     if (activeScope === 'temporal') {
       const endpoints = new Set(temporalEdges.flatMap(edge => [edge.source, edge.target]))
-      return { nodes: graph.nodes.filter(node => endpoints.has(node.id)), edges: temporalEdges }
+      return { nodes: graph.nodes.filter(node => node.observation_id || endpoints.has(node.id)), edges: temporalEdges }
     }
     if (isImpact) {
       // Use caller propagation direction in the impact view and keep source provenance.
@@ -99,13 +116,47 @@ export default function InvestigationGraph({ graph, referenceNode, focusSelectio
   const data = useMemo(() => {
     const graphNodes = nodes.map(node => ({ ...node }))
     if (isImpact) layoutImpactNodes(graphNodes, distances, vertical)
-    return { nodes: graphNodes, links: edges.map(edge => ({ ...edge })) }
-  }, [nodes, edges, isImpact, distances, vertical, layoutVersion])
-  const selected = nodes.find(node => node.id === selectedId) || nodes.find(node => node.id === origin)
+    const timeline = isTemporal ? layoutTemporalNodes(graphNodes, width - Math.min(160, width * 0.35) - 45) : null
+    return { nodes: graphNodes, links: edges.map(edge => ({ ...edge })), timeline }
+  }, [nodes, edges, isImpact, isTemporal, distances, vertical, layoutVersion, width])
+  const selected = selectedId === null ? undefined : nodes.find(node => node.id === selectedId) || nodes.find(node => node.id === origin)
   const hovered = nodes.find(node => node.id === hoveredId)
-  const labels = new Map(graph.nodes.map(node => [node.id, node.service || node.id]))
+  const labels = new Map(graph.nodes.map(node => [node.id, `${graphNodeTitle(node)}${node.observation_id ? ` · ${graphNodeSource(node)}` : ''}`]))
   const connectionCount = hovered ? edges.filter(edge => edge.source === hovered.id || edge.target === hovered.id).length : 0
   const pulse = motion && isImpact && nodes.length <= 20
+  const focusId = hovered?.id || selected?.id
+  const neighbors = new Set([focusId])
+  for (const edge of edges) {
+    if (edge.source === focusId) neighbors.add(edge.target)
+    if (edge.target === focusId) neighbors.add(edge.source)
+  }
+  const filteredNodes = nodes.filter(node => `${graphNodeTitle(node)} ${graphNodeSource(node)} ${node.summary || ''}`
+    .toLowerCase().includes(nodeSearch.trim().toLowerCase()))
+    .sort((a, b) => (a.service || '').localeCompare(b.service || '') ||
+      (a.utc_timestamp || '\uffff').localeCompare(b.utc_timestamp || '\uffff') || graphNodeSource(a).localeCompare(graphNodeSource(b)))
+  const dense = nodes.length > 12
+
+  function edgeIsFocused(edge) {
+    return (edge.source.id || edge.source) === focusId || (edge.target.id || edge.target) === focusId
+  }
+
+  function clearSelection() {
+    setSelectedId(null)
+    setHoveredId(null)
+  }
+
+  function selectNode(node, center = false) {
+    if (selected?.id === node.id) {
+      clearSelection()
+      return
+    }
+    setSelectedId(node.id)
+    setHoveredId(null)
+    const rendered = data.nodes.find(item => item.id === node.id)
+    if (center && Number.isFinite(rendered?.x) && Number.isFinite(rendered?.y)) {
+      force.current?.centerAt(rendered.x, rendered.y, 250)
+    }
+  }
 
   function incidentRole(node) {
     if (!['service', 'database'].includes(node.type)) return null
@@ -132,14 +183,15 @@ export default function InvestigationGraph({ graph, referenceNode, focusSelectio
   }, [])
 
   const fit = useCallback(() => {
-    if (width > 0 && force.current) fitGraph(force.current, width, height)
-  }, [width, height])
+    if (width > 0 && force.current) fitGraph(force.current, width, height,
+      isTemporal ? { left: Math.min(160, width * 0.35), right: 45, top: 90, bottom: 65 } : {})
+  }, [width, height, isTemporal])
 
   const attachGraph = useCallback(instance => {
     force.current = instance
     if (!instance) return
-    instance.d3Force('link')?.distance(116)
-    instance.d3Force('charge')?.strength(-250)
+    instance.d3Force('link')?.distance(170)
+    instance.d3Force('charge')?.strength(-650)
   }, [])
 
   useEffect(() => {
@@ -166,7 +218,8 @@ export default function InvestigationGraph({ graph, referenceNode, focusSelectio
   }
 
   function resetLayout() {
-    setHoveredId(null)
+    clearSelection()
+    setNodeSearch('')
     setLayoutVersion(version => version + 1)
   }
 
@@ -174,19 +227,25 @@ export default function InvestigationGraph({ graph, referenceNode, focusSelectio
 
   return (
     <>
-      {(dependencies.length > 0 || temporalEdges.length > 0) && (
+      {(dependencies.length > 0 || temporalEdges.length > 0 || graph.nodes.some(node => node.observation_id)) && (
         <div className="mb-2 flex flex-wrap gap-2" role="group" aria-label="Graph view">
           {hasImpact && <Button size="sm" variant={isImpact ? 'default' : 'outline'} aria-pressed={isImpact} onClick={() => setScope('impact')}>Impact path</Button>}
-          {temporalEdges.length > 0 && <Button size="sm" variant={activeScope === 'temporal' ? 'default' : 'outline'} aria-pressed={activeScope === 'temporal'} onClick={() => setScope('temporal')}>Temporal Evidence ({temporalEdges.length})</Button>}
+          {graph.nodes.some(node => node.observation_id) && <Button size="sm" variant={activeScope === 'temporal' ? 'default' : 'outline'} aria-pressed={activeScope === 'temporal'} onClick={() => setScope('temporal')}>Temporal evidence ({temporalEdges.length})</Button>}
           {dependencies.length > 0 && <Button size="sm" variant={activeScope === 'dependencies' ? 'default' : 'outline'} aria-pressed={activeScope === 'dependencies'} onClick={() => setScope('dependencies')}>Dependency graph</Button>}
           <Button size="sm" variant={activeScope === 'all' ? 'default' : 'outline'} aria-pressed={activeScope === 'all'} onClick={() => setScope('all')}>All relationships</Button>
         </div>
       )}
       <p id="graph-direction" className="mb-2 text-xs text-muted-foreground">
-        {activeScope === 'temporal' ? 'Temporal edges: precedes (amber), supports (emerald), contradicts (red), propagates to (indigo).' : isImpact ? 'Arrows follow impact from the origin to its callers.' : 'Dependency arrows point from caller to target.'}
+        {isTemporal ? 'Records run left to right by UTC start, grouped by service and input type. Overlapping ranges do not establish event order.' : isImpact ? 'Arrows follow impact from the origin to its callers.' : activeScope === 'all' ? 'Explore source records and service relationships. Hover or select to inspect a connection.' : 'Dependency arrows point from caller to target.'}
       </p>
-      <div className="graph-frame" ref={frame} role="region" aria-label="Incident relationship graph" aria-describedby={dependencies.length ? 'graph-direction' : undefined} style={{ height: height + 2 }}>
-        {origin && (
+      <div className="graph-frame" ref={frame} role="region" aria-label="Incident relationship graph" aria-describedby="graph-direction" style={{ height: height + 2 }}>
+        {activeScope === 'temporal' ? (
+          <ul className="graph-legend" aria-label="Temporal relationship legend">
+            {['precedes', 'supports', 'contradicts', 'propagates_to'].map(relation => (
+              <li key={relation}><Badge><span className="status-dot" style={{ backgroundColor: edgeColors[relation] }} />{relationshipLabel({ rel: relation })}</Badge></li>
+            ))}
+          </ul>
+        ) : origin && (
           <ul className="graph-legend" aria-label="Node status legend">
             {Object.entries(legend).map(([role, item]) => (
               <li key={role}><Badge tone={item.tone}><span className="status-dot" />{item.label}</Badge></li>
@@ -206,25 +265,36 @@ export default function InvestigationGraph({ graph, referenceNode, focusSelectio
             nodeLabel={() => ''}
             linkLabel={() => ''}
             nodePointerAreaPaint={paintNodeTarget}
-            enableNodeDrag={!isImpact}
-            linkColor={edge => edgeColors[edge.rel] || (edge.rel === 'depends_on' ? '#98b9ff' : '#7185a6')}
-            linkWidth={edge => ['precedes', 'supports', 'contradicts', 'propagates_to', 'depends_on'].includes(edge.rel) ? 1.8 : 1}
-            linkDirectionalArrowLength={9}
+            enableNodeDrag={!isImpact && !isTemporal}
+            linkColor={edge => `${edgeColors[edge.rel] || '#7185a6'}${focusId && dense && !edgeIsFocused(edge) ? '30' : 'c0'}`}
+            linkWidth={edge => edgeIsFocused(edge) ? 2 : edge.rel === 'depends_on' ? 1.8 : 0.8}
+            linkDirectionalArrowLength={edge => focusId && dense && !edgeIsFocused(edge) ? 0 : 7}
             linkDirectionalArrowRelPos={0.94}
             linkCanvasObjectMode={() => 'after'}
-            linkCanvasObject={(edge, context, scale) => drawGraphEdgeLabel(edge, context, scale, relationshipLabel(edge, isImpact))}
-            warmupTicks={isImpact ? 0 : 36}
-            cooldownTicks={isImpact ? 1 : 75}
+            linkCanvasObject={(edge, context, scale) => {
+              const labelFocus = hoveredId || (selected?.observation_id ? selected.id : null)
+              if (shouldLabelGraphEdge(edge, scale, edges.length, labelFocus)) {
+                drawGraphEdgeLabel(edge, context, scale, relationshipLabel(edge, isImpact))
+              }
+            }}
+            onRenderFramePre={(context, scale) => { if (data.timeline) drawTemporalLanes(context, scale, data.timeline) }}
+            warmupTicks={isImpact || isTemporal ? 0 : 36}
+            cooldownTicks={isImpact || isTemporal ? 1 : 75}
             autoPauseRedraw={!pulse}
             onEngineStop={fitAfterInitialLayout}
             onNodeDrag={() => { fittedLayout.current = data }}
-            onNodeClick={node => setSelectedId(node.id)}
+            onNodeClick={node => selectNode(node)}
+            onBackgroundClick={clearSelection}
             onNodeHover={node => setHoveredId(node?.id ?? null)}
             nodeCanvasObject={(node, context, scale) => drawGraphNode(node, context, scale, {
               role: incidentRole(node),
               selected: selected?.id === node.id,
               hovered: hovered?.id === node.id,
               pulse,
+              showLabel: selected?.id === node.id || hoveredId === node.id ||
+                (node.observation_id ? scale >= (dense ? 1.15 : 0.7) : ['service', 'database'].includes(node.type) || scale >= 0.65),
+              dimmed: Boolean(focusId && dense && !neighbors.has(node.id)),
+              minRadius: isTemporal && vertical ? 3 : 7,
             })}
           />
         )}
@@ -236,20 +306,24 @@ export default function InvestigationGraph({ graph, referenceNode, focusSelectio
         </div>
       </div>
       <p className="graph-inspection">
-        {hovered ? <><strong>{hovered.service || hovered.id}</strong> · {hovered.type || 'entity'} · {connectionCount} {connectionCount === 1 ? 'connection' : 'connections'}</> : 'Drag to pan. Select a node to see its relationships and source records.'}
+        {hovered ? <><strong>{graphNodeTitle(hovered)}</strong> · {graphNodeSource(hovered)} · {connectionCount} {connectionCount === 1 ? 'connection' : 'connections'}{hovered.summary && <span className="graph-hover-summary">{hovered.summary}</span>}</> : 'Select a node for details. Select it again or click empty canvas to clear. Drag to pan; zoom in for labels.'}
       </p>
       <details className="graph-list">
-        <summary>Inspect graph nodes</summary>
-        <div className="service-list pt-3" role="group" aria-label="Graph nodes">
-          {nodes.map(node => (
-            <button type="button" className="service-chip" key={node.id} onClick={() => setSelectedId(node.id)} aria-pressed={selected?.id === node.id}>
-              {node.service || node.id}
+        <summary>Browse records and entities ({nodes.length})</summary>
+        <input className="graph-node-search" type="search" aria-label="Find graph records or entities" placeholder="Find a service, time, or source" value={nodeSearch} onChange={event => setNodeSearch(event.target.value)} />
+        <div className="graph-node-browser" role="group" aria-label="Graph nodes">
+          {filteredNodes.map(node => (
+            <button type="button" className="graph-node-entry" key={node.id} onClick={() => selectNode(node, true)} aria-pressed={selected?.id === node.id}>
+              <strong>{graphNodeTitle(node)}</strong>
+              <small>{graphNodeSource(node)}</small>
             </button>
           ))}
+          {!filteredNodes.length && <p className="p-3">No matching records or entities.</p>}
         </div>
       </details>
       {selected && (
         <SelectedNode node={selected} role={incidentRole(selected)} labels={labels} impact={isImpact}
+          onObservation={observationId => onObservation(observationId, selected.id)}
           edges={edges.filter(edge => edge.source === selected.id || edge.target === selected.id)} />
       )}
       {sessionId && selected && ['service', 'database'].includes(selected.type) && (

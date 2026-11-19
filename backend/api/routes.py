@@ -30,7 +30,7 @@ from typing import Literal
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 
 from models import GroundedReply, BaseChunk, IngestResult, RCAOutput, Session, CreateSessionRequest, Observation, ObservationFilter, ObservationPage, IncidentOverview, VerifiedRCA, TemporalEdgeCounts, ClaimVerification, RemediationResult, NextStepResult
 
@@ -41,10 +41,32 @@ router = APIRouter()
 # ── Request models ────────────────────────────────────────────────────────────
 class QueryRequest(BaseModel):
     query: str
+    demo: bool = False
 
 
 class SessionQueryRequest(QueryRequest):
     mode: Literal["grounded", "graph_rag"] = "grounded"
+    service: str | None = Field(default=None, min_length=1, max_length=120)
+    start: str | None = None
+    end: str | None = None
+
+    @model_validator(mode="after")
+    def validate_scope(self):
+        from services.observations import normalize_timestamp
+        for name in ("start", "end"):
+            value = getattr(self, name)
+            if value is not None:
+                utc = normalize_timestamp(value)
+                if utc is None:
+                    raise ValueError("UTC scope requires dated timestamps with timezones.")
+                setattr(self, name, utc)
+        if self.start and self.end and self.start >= self.end:
+            raise ValueError("Scope end must be after its start.")
+        if self.mode == "graph_rag" and (self.service or self.start or self.end):
+            raise ValueError("Scoped queries use grounded mode; the legacy baseline has no time filtering.")
+        if self.demo:
+            raise ValueError("Synthetic demo fallback is unavailable inside an incident. Upload the demo files explicitly.")
+        return self
 
 
 # ── File extension sets ───────────────────────────────────────────────────────
@@ -98,6 +120,8 @@ def _index_chunks(chunks: list[BaseChunk], session_id: str | None, result: Inges
             valid_chunks, valid_embeddings = zip(*pairs)
             info = pinecone_store.upsert_chunks(list(valid_chunks), list(valid_embeddings), namespace=session_id)
             result.chunks_indexed = info.get("upserted", 0)
+            if info.get("message") and info.get("status") != "ready":
+                result.warnings.append(info["message"])
     except Exception:
         logger.exception("Vector indexing failed for session %s", session_id)
 
@@ -115,7 +139,7 @@ async def _run_ingest(files: list[UploadFile], session_id: str | None = None) ->
     from services.incident_context import parse_changes, save_dependencies
     from services.log_ingest import ingest_log_content
     from services.observations import save_observations
-    from services.session_store import _session_dir, get_session, update_session
+    from services.session_store import _session_dir, get_session, register_session_files
 
     if len(files) > _MAX_FILES:
         raise HTTPException(status_code=413, detail=f"Upload at most {_MAX_FILES} files at once.")
@@ -165,6 +189,8 @@ async def _run_ingest(files: list[UploadFile], session_id: str | None = None) ->
                     cache = _session_dir(session_id) / "vision-cache" if session_id else None
                     chunk, observations = await run_in_threadpool(image_analyzer.analyze_image, path, cache)
                     chunks = [chunk]
+            for observation in observations:
+                result.warnings.extend(f"{name} record {observation.source_position}: {warning}" for warning in observation.quality_warnings)
             if not chunks:
                 raise ValueError("No usable telemetry found.")
             if session_id and get_session(session_id) is None:
@@ -173,7 +199,7 @@ async def _run_ingest(files: list[UploadFile], session_id: str | None = None) ->
             if session_id:
                 result.observations_added += save_observations(_session_dir(session_id), digest, observations)
             _add_file_to_graph(name, modality, chunks, session_id)
-            if modality == "log":
+            if modality == "log" and session_id is None:
                 try:
                     ingest_log_content(content.decode("utf-8-sig", errors="replace"), session_id=session_id)
                 except Exception as e:
@@ -193,15 +219,17 @@ async def _run_ingest(files: list[UploadFile], session_id: str | None = None) ->
             result.errors.append(f"{name}: could not process the file.")
 
     result.files_processed = len(result.processed_files)
+    if session_id and result.files_processed:
+        from services.temporal_edges import build_temporal_edges
+        try:
+            await run_in_threadpool(build_temporal_edges, session_id)
+        except Exception:
+            logger.exception("Could not refresh incident graph for %s", session_id)
+            result.warnings.append("Telemetry was saved. Retry graph finalization to refresh temporal relationships.")
     stats = get_stats(session_id=session_id)
     result.graph_nodes, result.graph_edges = stats["nodes"], stats["edges"]
-    if session_id and (meta := get_session(session_id)):
-        update_session(
-            session_id,
-            files=list(dict.fromkeys(meta.get("files", []) + result.processed_files)),
-            node_count=result.graph_nodes,
-            edge_count=result.graph_edges,
-        )
+    if session_id:
+        register_session_files(session_id, result.processed_files)
 
     if all_chunks:
         if GEMINI_API_KEY and PINECONE_API_KEY:
@@ -373,6 +401,7 @@ async def session_query(session_id: str, request: SessionQueryRequest):
     if not request.query.strip():
         raise HTTPException(status_code=400, detail="Query cannot be empty.")
 
+    generation = get_session(session_id).get("chat_generation", 0)
     try:
         if request.mode == "graph_rag":
             from agents.orchestrator import Orchestrator
@@ -381,7 +410,7 @@ async def session_query(session_id: str, request: SessionQueryRequest):
         else:
             from services.grounded_chat import answer_incident
 
-            result = await answer_incident(_session_dir(session_id), request.query, get_session_chat(session_id))
+            result = await answer_incident(_session_dir(session_id), request.query, get_session_chat(session_id), service=request.service, start=request.start, end=request.end)
         if get_session(session_id) is None:
             raise HTTPException(status_code=404, detail="Session no longer exists.")
 
@@ -389,6 +418,7 @@ async def session_query(session_id: str, request: SessionQueryRequest):
             session_id,
             {"role": "user", "content": request.query},
             {"role": "assistant", "content": result.model_dump()},
+            expected_generation=generation,
         )
         return result
     except HTTPException:
@@ -440,9 +470,8 @@ async def clear_session_chat(session_id: str):
 @router.post("/sessions/{session_id}/finalize", response_model=TemporalEdgeCounts, tags=["LogMind-X"])
 async def finalize_session(session_id: str):
     """
-    Post-ingest step: build temporal edges (precedes / propagates_to / supports / contradicts)
-    from the observation nodes in this session's graph.
-    Call once after all files have been uploaded to the session.
+    Refresh source observations and temporal relationships, including older uploads.
+    Return the total count of each temporal relation in the rebuilt graph.
     """
     from services.session_store import get_session as _get
     if _get(session_id) is None:
@@ -548,7 +577,7 @@ async def query_incident(request: QueryRequest):
     logger.info("Global query: %s", request.query)
     try:
         from agents.orchestrator import Orchestrator
-        return Orchestrator().run(request.query, session_id=None)
+        return Orchestrator().run(request.query, session_id=None, demo=request.demo)
     except Exception as exc:
         logger.error("Orchestrator error: %s", exc, exc_info=True)
         return RCAOutput(

@@ -36,6 +36,7 @@ _FIELDS = (
 
 def find_lookup(
     directory: Path, question: str, terms: list[str], records: list[Observation], links: list[dict],
+    *, start: str | None = None, end: str | None = None,
 ) -> tuple[Observation, str | None] | None:
     """Return a single observed fact, or a full-session peak and its source record."""
     if not _LOOKUP.search(question) or _COMPLEX.search(question):
@@ -56,7 +57,7 @@ def find_lookup(
         )
         if not scoped_peak:
             return None
-        peak = highest_metric_reading(directory, field, scoped_peak[1].lower())
+        peak = highest_metric_reading(directory, field, scoped_peak[1].lower(), start=start, end=end)
         return (peak, field) if peak else None
 
     scope = {link["retrieval_service"] for link in links} if dependency else {
@@ -77,7 +78,7 @@ def find_lookup(
     else:
         return None
 
-    scoped = search_observations(directory, [], _LOOKUP_SCOPE_LIMIT + 1, services=list(scope))
+    scoped = search_observations(directory, [], _LOOKUP_SCOPE_LIMIT + 1, services=list(scope), start=start, end=end)
     if len(scoped) > _LOOKUP_SCOPE_LIMIT or any(values_in(event) - values for event in scoped):
         return None
     return record, None
