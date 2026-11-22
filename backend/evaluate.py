@@ -90,15 +90,27 @@ QUESTIONS = (
     Question("rollout-dependency", "account-api", "identity-worker",
              "Which deployment version did the dependency of account-api report?",
              "Deployment version v2.7.4", r"(?<![\d.])2\.7\.4(?!\d|\.\d)", "Deployment version check completed", "dependency"),
+    Question("latency-dependency", "payment-service", "card-vault",
+             "What p99 latency did the dependency of payment-service report?",
+             "P99 latency: 850 ms", r"\b850\b", "Latency monitor responding normally", "dependency"),
     Question("caller-error", "message-broker", "notification-api",
              "What error code did a caller of message-broker report?",
              "Error code 503", r"\b503\b", "Error code monitor responding", "caller"),
+    Question("caller-timeout", "user-db", "auth-service",
+             "What timeout did a caller of user-db experience?",
+             "DatabaseTimeout on caller auth-service after 5000 ms", r"\b5000\b", "Service health check passed", "caller"),
     Question("direct-cpu", "export-worker", "export-worker",
              "What CPU percentage did export-worker reach?",
              "CPU reached 91 percent", r"\b91\b", "Health probe passed", "direct"),
     Question("direct-rollout", "search-api", "search-api",
              "Which deployment version did search-api report?",
              "Deployment version v4.6.1", r"(?<![\d.])4\.6\.1(?!\d|\.\d)", "Health probe passed", "direct"),
+    Question("direct-memory", "cache-redis", "cache-redis",
+             "What memory percentage did cache-redis reach?",
+             "Memory reached 88 percent", r"\b88\b", "Heartbeat received", "direct"),
+    Question("direct-queue", "task-scheduler", "task-scheduler",
+             "What queue depth did task-scheduler report?",
+             "Queue depth: 1420 messages", r"\b1420\b", "Scheduler tick completed", "direct"),
 )
 
 
@@ -254,6 +266,8 @@ async def evaluate_verifier(client: AsyncClient, live_model: bool, calls: list[d
         ("full-demo", DEMO_FILES, "user-db"),
         ("missing-metrics", tuple(name for name in DEMO_FILES if name != "demo_metrics.json"), None),
         ("missing-topology", DEMO_FILES[:-1], None),
+        ("missing-logs", tuple(name for name in DEMO_FILES if name != "demo_app.log"), None),
+        ("missing-changes", tuple(name for name in DEMO_FILES if "demo_changes.json" not in name), None),
     ):
         session, _ = await ingest_demo(client, files)
         start = perf_counter()
@@ -427,10 +441,16 @@ async def _evaluate(live: bool, meter: ProviderCalls) -> dict:
     from evaluation_baseline import frozen_graph_context
     baseline = frozen_graph_context(config.DEMO_DIR, DEMO_QUESTION, [{"id": "fixture-source", "score": 1., "metadata": {"services": "user-db, auth-service, api-gateway"}, "snippet": "Aligned synthetic fixture context only"}])
     fixture_files = [*config.DEMO_DIR.glob("*.json"), *config.DEMO_DIR.glob("*.log"), *config.DEMO_DIR.glob("*.png"), *config.DEMO_DIR.glob("context/*.json")]
+    def _git_output(args: list[str]) -> str:
+        try:
+            return subprocess.check_output(["git", "-c", "safe.directory=*", *args], text=True).strip()
+        except Exception:
+            return ""
+
     return {
         "run": {"at": datetime.now(timezone.utc).isoformat(), "python": platform.python_version(),
-                "git_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
-                "git_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], text=True).strip()),
+                "git_commit": _git_output(["rev-parse", "HEAD"]),
+                "git_dirty": bool(_git_output(["status", "--porcelain"])),
                 "runtime_source_sha256": {str(path.relative_to(Path(__file__).parent)): sha256(path.read_bytes()).hexdigest() for path in [*Path(__file__).parent.glob("*.py"), *(source for folder in ("services", "agents", "api") for source in (Path(__file__).parent / folder).glob("*.py"))]},
                 "fixture_sha256": {str(path.relative_to(config.DEMO_DIR)): sha256(path.read_bytes()).hexdigest() for path in fixture_files}},
         "frozen_baseline_preflight": baseline,

@@ -1,8 +1,12 @@
-"""Reentrant advisory locks shared by threads and server processes on Linux."""
+"""Reentrant advisory locks shared by threads and server processes (cross-platform)."""
 from functools import lru_cache
 from pathlib import Path
 from threading import RLock, local
-import fcntl
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 
 
 class StorageLock:
@@ -17,7 +21,8 @@ class StorageLock:
             if not getattr(self.state, "depth", 0):
                 self.path.parent.mkdir(parents=True, exist_ok=True)
                 self.state.stream = self.path.open("a")
-                fcntl.flock(self.state.stream, fcntl.LOCK_EX)
+                if fcntl:
+                    fcntl.flock(self.state.stream, fcntl.LOCK_EX)
             self.state.depth = getattr(self.state, "depth", 0) + 1
         except BaseException:
             self.thread_lock.release()
@@ -28,7 +33,8 @@ class StorageLock:
         try:
             self.state.depth -= 1
             if not self.state.depth:
-                fcntl.flock(self.state.stream, fcntl.LOCK_UN)
+                if fcntl:
+                    fcntl.flock(self.state.stream, fcntl.LOCK_UN)
                 self.state.stream.close()
         finally:
             self.thread_lock.release()

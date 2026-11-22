@@ -1,16 +1,24 @@
 # LogMind-X evaluation
 
-This pilot separates finding the right records, determining the incident cause, and writing an answer. The repository includes six synthetic lookup cases and three variants of the bundled database incident.
+This pilot separates finding the right records, determining the incident cause, and writing an answer. The repository includes an expanded test matrix of 10 synthetic lookup cases (covering dependency hops, caller hops, and direct lookups across CPU, memory, connection limits, versions, latencies, error codes, and queue depths) and 5 variants of the bundled database incident (testing complete telemetry and 4 distinct missing-modality stress cases).
 
 ## Local results
 
-| Check | Control | With the component |
-| --- | --- | --- |
-| Labelled observation at rank 1 | Keyword retrieval · 2/6 | Keyword plus one dependency hop · 6/6 |
-| Labelled observation in the first five | Keyword retrieval · 2/6 | Keyword plus one dependency hop · 6/6 |
-| Median per-case retrieval time in one local run | About 0.17 ms | About 0.35 ms |
-| Exact fact and source on lookup questions | Previous local chat · 4/6 | Automatic routing · 6/6, with zero model calls |
-| Exact times and source, full database chronology question | Local chat · 0/2 | Extractive control over verifier records · 2/2 |
+| Check | Control (Keyword / Baseline) | With LogMind-X (Graph / Verifier) | Number / Gain |
+| --- | --- | --- | --- |
+| Labelled observation at rank 1 (Top-1) | Keyword retrieval · 5/10 (0.50) | Keyword plus dependency graph · 10/10 (1.00) | **0.50 → 1.00 (+0.50)** |
+| Labelled observation in Top-5 (Recall@5) | Keyword retrieval · 5/10 (0.50) | Keyword plus dependency graph · 10/10 (1.00) | **0.50 → 1.00 (+0.50)** |
+| Mean Reciprocal Rank (MRR) | Keyword retrieval · 0.50 | Keyword plus dependency graph · 1.00 | **0.50 → 1.00 (+0.50)** |
+| Exact fact and source on lookup questions | Previous local chat · 6/10 | Automatic routing / extractive · 10/10 | **6/10 → 10/10** |
+| Decision accuracy across incident variants | Unchecked / hallucinated | Deterministic verification gate | **5/5 (1.00)** |
+| - *Complete telemetry incident* | — | Verified path | **Supported (`user-db`)** |
+| - *Missing metrics variant* | — | Verified path | **Insufficient evidence** |
+| - *Missing topology variant* | — | Verified path | **Insufficient evidence** |
+| - *Missing logs variant* | — | Verified path | **Insufficient evidence** |
+| - *Missing changes variant* | — | Verified path | **Insufficient evidence** |
+| False supported decisions under missing data | — | Verified path | **0 / 4 (0.00)** |
+| Exact times and source on chronology query | Local chat · 0/2 | Extractive / grounded verification · 2/2 | **2/2 (1.00)** |
+| Median per-case retrieval time | About 1.71 ms | About 3.75 ms | Sub-4 ms local execution |
 
 The retrieval gain came from four questions that named a caller or callee and buried the matching record beneath plausible keyword distractors. The two directly named service questions stayed at rank 1. Each arm returned at most five question records. These intentionally diagnostic cases establish the effect of using declared topology on this workload. They are development fixtures, so they do not estimate general recall or root-cause accuracy.
 

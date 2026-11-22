@@ -13,7 +13,8 @@ ROOT = Path(__file__).parent
 def _load(name):
     manifest = json.loads((ROOT / 'manifest.json').read_text())
     path = ROOT / name
-    data = path.read_bytes()
+    # Normalize CRLF to LF so hash verification passes consistently on Windows checkouts
+    data = path.read_bytes().replace(b'\r\n', b'\n')
     if sha256(data).hexdigest() != manifest['files'][name]:
         raise ValueError(f'Frozen baseline changed: {name}')
     module = ModuleType('frozen_' + name.replace('.', '_'))

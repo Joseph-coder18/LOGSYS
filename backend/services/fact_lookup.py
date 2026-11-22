@@ -29,8 +29,12 @@ _FIELDS = (
      r"\b(?:deployment|deployed|release) version\s*[:=]?\s*(v?\d+(?:\.\d+)+)(?!\d|\.\d)"),
     ("error_code", r"\b(?:http(?: status)?|error|status) code\b",
      r"\b(?:http(?: status)?|error|status) code\s*[:=]?\s*(\d{3})\b"),
-    ("db_latency_ms", r"\b(?:database|db) latency\b|\bdb_latency_ms\b",
-     r"\b(?:database|db) latency(?: reached| was| at)?\s*[:=]?\s*(\d+(?:\.\d+)?)\s*ms\b"),
+    ("db_latency_ms", r"\b(?:database|db)?\s*(?:p99\s+)?latency\b|\bdb_latency_ms\b",
+     r"\b(?:database|db)?\s*(?:p99\s+)?latency(?: reached| was| at)?\s*[:=]?\s*(\d+(?:\.\d+)?)\s*ms\b"),
+    ("memory_percent", r"\bmemory\s+(?:usage|utilization|percentage|percent)\b|\bmemory_percent\b",
+     r"\bmemory(?: percentage| usage| utilization)?(?: reached| was| at)?\s*[:=]?\s*(\d+(?:\.\d+)?)\s*(?:%|percent\b)"),
+    ("queue_depth", r"\bqueue\s+depth\b|\bqueue_depth\b",
+     r"\bqueue\s+depth\s*[:=]?\s*(\d+)\s*(?:messages?)?\b"),
 )
 
 
