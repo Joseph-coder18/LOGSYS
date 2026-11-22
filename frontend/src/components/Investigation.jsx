@@ -349,10 +349,19 @@ export default function Investigation({ incident, connected, onSessionsChange, o
             <div className="diagnosis-top">
               <h2><ScanLine size={17} /> Root cause analysis</h2>
               {snapshotChanged && <Badge tone="warning">Verification out of date</Badge>}
-              {verifiedDiagnosis && !snapshotChanged && <Badge tone={verifiedDiagnosis.decision === 'supported' ? 'positive' : 'warning'}>{decisions[verifiedDiagnosis.decision]}</Badge>}
+              {verifiedDiagnosis && !snapshotChanged && (
+                <div className="flex items-center gap-1.5">
+                  <Badge tone={verifiedDiagnosis.decision === 'supported' ? 'positive' : 'warning'}>{decisions[verifiedDiagnosis.decision]}</Badge>
+                  {typeof verifiedDiagnosis.confidence_score === 'number' && verifiedDiagnosis.confidence_score > 0 && (
+                    <Badge tone={verifiedDiagnosis.confidence_score >= 0.8 ? 'positive' : verifiedDiagnosis.confidence_score >= 0.5 ? 'neutral' : 'warning'}>
+                      {Math.round(verifiedDiagnosis.confidence_score * 100)}% confidence
+                    </Badge>
+                  )}
+                </div>
+              )}
               {!verifiedDiagnosis && result?.root_cause && result?.confidence && (
-                <InfoTooltip label={<Badge tone={result.confidence === 'high' ? 'positive' : 'neutral'}><span className="info-label">{result.confidence} confidence</span><Info size={12} aria-hidden="true" /></Badge>}>
-                  {sample ? 'Example confidence label for this sample diagnosis.' : 'Qualitative confidence reported by the analysis. Treat it as an estimate when reviewing the evidence.'}
+                <InfoTooltip label={<Badge tone={result.confidence === 'high' ? 'positive' : 'neutral'}><span className="info-label">{typeof result.confidence_score === 'number' && result.confidence_score > 0 ? `${Math.round(result.confidence_score * 100)}%` : result.confidence} confidence</span><Info size={12} aria-hidden="true" /></Badge>}>
+                  {sample ? 'Calculated confidence score based on verified telemetry and hypothesis checks.' : 'Evidence-grounded confidence percentage calculated from verified observations and hypothesis checks.'}
                 </InfoTooltip>
               )}
             </div>

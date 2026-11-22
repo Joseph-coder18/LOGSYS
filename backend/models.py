@@ -121,6 +121,7 @@ class RCAOutput(BaseModel):
     affected_services: list[str] = Field(default_factory=list)
     recommendations: list[str] = Field(default_factory=list)
     confidence: str = "low"
+    confidence_score: float = 0.0
     evidence: list[EvidenceItem] = Field(default_factory=list)
     agent_trace: list[dict[str, Any]] = Field(default_factory=list)
     answer: str = ""

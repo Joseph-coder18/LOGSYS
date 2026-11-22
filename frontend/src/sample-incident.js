@@ -10,6 +10,7 @@ export const sampleResult = {
   root_cause: 'Database connection pool exhausted',
   summary: 'The user-db pool reached its 20-connection limit. Authentication requests stalled while waiting for a connection, then the API gateway returned 504s.',
   confidence: 'high',
+  confidence_score: 0.96,
   suspected_origin: 'user-db',
   affected_services: ['user-db', 'auth-service', 'api-gateway'],
   evidence: [

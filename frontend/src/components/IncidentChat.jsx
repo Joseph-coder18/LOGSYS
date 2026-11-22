@@ -31,11 +31,18 @@ function Reply({ content, onReference, onObservation }) {
 
   return (
     <>
-      {content?.answer_mode && (
-        <Badge className="mb-2" tone={content.answer_mode === 'generated' ? 'positive' : 'neutral'}>
-          {replyLabels[content.answer_mode] || replyLabels.local}
-        </Badge>
-      )}
+      <div className="mb-2 flex flex-wrap items-center gap-1.5">
+        {content?.answer_mode && (
+          <Badge tone={content.answer_mode === 'generated' ? 'positive' : 'neutral'}>
+            {replyLabels[content.answer_mode] || replyLabels.local}
+          </Badge>
+        )}
+        {typeof content?.confidence_score === 'number' && content.confidence_score > 0 && (
+          <Badge tone={content.confidence_score >= 0.8 ? 'positive' : content.confidence_score >= 0.5 ? 'neutral' : 'warning'}>
+            {Math.round(content.confidence_score * 100)}% confidence
+          </Badge>
+        )}
+      </div>
       {claims.length ? (
         <div className="grid gap-3">
           {claims.map((claim, index) => (

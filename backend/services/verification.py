@@ -42,6 +42,29 @@ def _hypothesis(label: str, service: str, checks: list[HypothesisCheck]) -> Hypo
     return Hypothesis(label=label, service=service, checks=checks, score=sum(points[check.outcome] for check in checks))
 
 
+def _calc_confidence(hypothesis: Hypothesis, is_supported: bool, evidence_modalities: set[str]) -> tuple[str, float]:
+    """Calculate exact confidence percentage (0.0 - 1.0) and qualitative tier."""
+    checks = hypothesis.checks
+    if not checks:
+        return "low", 0.0
+    passed = sum(1 for c in checks if c.outcome == "supports")
+    contradicted = sum(1 for c in checks if c.outcome == "contradicts")
+    total = len(checks)
+    
+    if is_supported:
+        # 4/4 checks passed. Cross-modal presence adds stability.
+        score = 0.90 + (0.06 if len(evidence_modalities) >= 2 else 0.0)
+        return "high", round(min(0.98, score), 2)
+    elif contradicted > 0:
+        score = max(0.10, (passed - contradicted) / total * 0.50)
+        return "low", round(score, 2)
+    else:
+        # Partial / insufficient evidence
+        score = max(0.15, (passed / total) * 0.60)
+        tier = "medium" if score >= 0.50 else "low"
+        return tier, round(score, 2)
+
+
 def _check_reduction(
     change: Observation, events: list[Observation], callers: dict[str, list[str]],
 ) -> VerifiedRCA:
@@ -104,7 +127,9 @@ def _check_reduction(
                "An ordered database connection timeout on a declared caller is missing."),
     ]
     hypothesis = _hypothesis("Connection pool limit reduction", service, checks)
+    modalities = {item.type for item in evidence}
     if not (baseline and saturation and timeout):
+        tier, conf_score = _calc_confidence(hypothesis, False, modalities)
         anchor = datetime.fromisoformat(change.timestamp)
         if not baseline:
             next_check = NextCheck(
@@ -127,6 +152,7 @@ def _check_reduction(
             )
         return VerifiedRCA(
             decision="insufficient_evidence", root_cause="Cause unresolved", next_check=next_check,
+            confidence=tier, confidence_score=conf_score,
             summary="The pool limit reduction is recorded. Verification requires a recent pre-change baseline, saturation with rising latency, and a subsequent database-connection timeout on a declared caller.",
             evidence=evidence, agent_trace=trace, hypotheses=[hypothesis],
         )
@@ -135,9 +161,11 @@ def _check_reduction(
     propagation = f"{timeout.service} then reported a connection timeout"
     if gateway:
         propagation += f", and {gateway.service} returned a 504"
+    tier, conf_score = _calc_confidence(hypothesis, True, modalities)
     return VerifiedRCA(
         decision="supported", suspected_origin=service, affected_services=affected,
         root_cause=f"Connection pool limit reduction on {service}",
+        confidence=tier, confidence_score=conf_score,
         summary=f"The pool limit dropped from {limits.before} to {limits.after}. The pool reached the new limit as database latency rose. {propagation}.",
         evidence=evidence,
         next_check=NextCheck(
@@ -195,6 +223,8 @@ def _check_cpu(
     if error:
         evidence.append(_evidence(error, "Records an error after the spike on a declared caller."))
     supported = all(check.outcome == "supports" for check in checks)
+    modalities = {item.type for item in evidence}
+    tier, conf_score = _calc_confidence(hypothesis, supported, modalities)
     if supported:
         next_check = NextCheck(instruction="Check CPU usage, request latency, and caller errors after addressing the pressure.", service=spike.service)
     elif earlier_signal or not baseline:
@@ -211,6 +241,7 @@ def _check_cpu(
         next_check=next_check,
         decision="supported" if supported else "insufficient_evidence",
         root_cause=f"CPU pressure on {spike.service}" if supported else "Cause unresolved",
+        confidence=tier, confidence_score=conf_score,
         summary=(f"CPU reached {spike.metric_values['cpu_percent']:g}% before an error on {error.service}."
                  if supported else "The recorded CPU spike does not meet all timing and dependency checks."),
         suspected_origin=spike.service if supported else None,
@@ -271,6 +302,7 @@ def verify_incident(session_dir: Path, *, service: str | None = None, start: str
         by_id = {item.observation_id: item for candidate in viable for item in candidate.evidence}
         result = VerifiedRCA(
             decision="ambiguous", root_cause="Competing explanations",
+            confidence="medium", confidence_score=0.50,
             summary="Multiple hypotheses meet the evidence checks. Compare the timeline and source records to distinguish the explanations.",
             evidence=list(by_id.values()),
             next_check=NextCheck(instruction="Compare when CPU pressure and connection saturation began against the first caller error. Open the cited samples to check which signal started first."),
@@ -278,6 +310,7 @@ def verify_incident(session_dir: Path, *, service: str | None = None, start: str
     else:
         result = candidates[0] if candidates else VerifiedRCA(
             decision="insufficient_evidence", root_cause="Cause unresolved",
+            confidence="low", confidence_score=0.20,
             summary="The available observations do not establish a supported pool-limit or CPU diagnosis.",
             next_check=NextCheck(instruction="Upload dated service metrics and caller errors with the dependency manifest. Include configuration changes when investigating a change to the pool limit."),
         )

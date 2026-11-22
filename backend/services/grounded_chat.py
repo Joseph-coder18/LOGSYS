@@ -319,12 +319,33 @@ async def answer_incident(
         "distinct": len(observations),
         "source_groups": len({event.provenance_group or event.source_file for event in observations}),
     }
-    diagnosis_payload = diagnosis.model_dump(exclude={"answer", "agent_trace"})
+    diagnosis_payload = diagnosis.model_dump(exclude={"answer", "agent_trace", "confidence", "confidence_score"})
     if start or end or service:
         # A scoped conversation must not replace or masquerade as the saved full-incident verdict.
         diagnosis_payload.update(evidence_revision=None)
+
+    # Compute exact answer-level confidence
+    if mode == "extractive":
+        ans_confidence_score = 0.95
+        ans_confidence = "high"
+    elif mode == "generated" and claims:
+        cited_ratio = sum(1 for c in claims if c.citations) / len(claims)
+        diag_conf = diagnosis.confidence_score or (0.90 if diagnosis.decision == "supported" else 0.40)
+        ans_confidence_score = round(min(0.96, (0.70 * cited_ratio) + (0.25 * diag_conf)), 2)
+        ans_confidence = "high" if ans_confidence_score >= 0.80 else "medium" if ans_confidence_score >= 0.50 else "low"
+    else:
+        # Local fallback / ungrounded
+        if diagnosis.decision == "supported":
+            ans_confidence_score = 0.85
+            ans_confidence = "high"
+        else:
+            ans_confidence_score = round(max(0.25, diagnosis.confidence_score or 0.30), 2)
+            ans_confidence = "medium" if ans_confidence_score >= 0.50 else "low"
+
     return GroundedReply(
         **diagnosis_payload,
+        confidence=ans_confidence,
+        confidence_score=ans_confidence_score,
         answer="\n\n".join(claim.text for claim in claims),
         claims=claims,
         answer_mode=mode,

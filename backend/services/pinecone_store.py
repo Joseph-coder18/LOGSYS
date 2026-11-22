@@ -56,12 +56,18 @@ def _initialize_index():
             )
 
         description = pc.describe_index(PINECONE_INDEX_NAME)
-        actual = description.dimension
-        if actual != EMBEDDING_DIM:
+        actual = getattr(description, "dimension", None)
+        if actual is None and hasattr(description, "schema") and hasattr(description.schema, "fields"):
+            # Pinecone SDK >= 10.0 schema lookup fallback
+            for field in getattr(description.schema.fields, "values", lambda: [])():
+                if hasattr(field, "dimension"):
+                    actual = field.dimension
+                    break
+        if actual is not None and actual != EMBEDDING_DIM:
             _init_failure = {"status": "dimension_mismatch", "expected_dimension": EMBEDDING_DIM, "actual_dimension": actual,
                              "message": f"Index dimension is {actual}; embeddings require {EMBEDDING_DIM}. Choose a compatible index. Existing data was not changed."}
             return None
-        _index = pc.Index(PINECONE_INDEX_NAME, timeout=10.0)
+        _index = pc.Index(PINECONE_INDEX_NAME)
         _init_failure = {}
         _initialized = True
         logger.info("Pinecone index '%s' ready.", PINECONE_INDEX_NAME)

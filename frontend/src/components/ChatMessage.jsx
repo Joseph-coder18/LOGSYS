@@ -52,7 +52,9 @@ function AssistantMessage({ content, onViewTab }) {
         <div className="cm-footer">
           <span className={`cm-conf-badge ${confCfg.cls}`}>
             <span className="cm-conf-dot" />
-            {confCfg.label} confidence
+            {typeof content.confidence_score === 'number' && content.confidence_score > 0
+              ? `${Math.round(content.confidence_score * 100)}% confidence`
+              : `${confCfg.label} confidence`}
           </span>
           <div className="cm-services">
             {affected_services.slice(0, 4).map(s => (
