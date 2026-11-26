@@ -26,7 +26,7 @@ class LiveTimelineTests(IsolatedAsyncioTestCase):
             patcher = patch.object(session_store, key, value)
             patcher.start()
             self.addCleanup(patcher.stop)
-        for key in ("GEMINI_API_KEY", "PINECONE_API_KEY"):
+        for key in ("GEMINI_API_KEY", "GROQ_API_KEY", "PINECONE_API_KEY"):
             patcher = patch(f"config.{key}", "")
             patcher.start()
             self.addCleanup(patcher.stop)

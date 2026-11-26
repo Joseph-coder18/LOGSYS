@@ -59,6 +59,7 @@ export const clearChat      = async (id) => (await client.delete(`/sessions/${id
 export const finalizeSession       = async (id) => (await client.post(`/sessions/${id}/finalize`)).data
 export const verifyClaim           = async (id, claim) => (await client.post(`/sessions/${id}/verify-claim`, claim)).data
 export const nextInvestigationStep = async (id) => (await client.get(`/sessions/${id}/next-step`)).data
+export const causalRanking         = async (id) => (await client.get(`/sessions/${id}/causal-ranking`)).data
 export const suggestRemediation    = async (id, causalNodeId) => (await client.post(`/sessions/${id}/remediate`, { causal_node_id: causalNodeId })).data
 
 // ── Global (backward-compat) ──────────────────────────────────────────────────

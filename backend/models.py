@@ -164,12 +164,32 @@ class ObservationCitation(BaseModel):
 class ApprovedClaim(BaseModel):
     text: str
     citations: list[ObservationCitation] = Field(default_factory=list)
+    audit_status: Literal["verified", "flagged", "unverified"] = "verified"
+    audit_warnings: list[str] = Field(default_factory=list)
 
 
 class GroundedReply(VerifiedRCA):
     query_scope: dict[str, str | None] | None = None
     claims: list[ApprovedClaim] = Field(default_factory=list)
     answer_mode: Literal["generated", "extractive", "local"] = "local"
+    audit_score: float | None = None
+
+
+class CausalOriginCandidate(BaseModel):
+    service: str
+    score: float
+    temporal_score: float
+    upstream_score: float
+    modal_score: float
+    first_anomaly_at: str | None = None
+    downstream_affected: list[str] = Field(default_factory=list)
+    modalities: list[str] = Field(default_factory=list)
+    evidence_ids: list[str] = Field(default_factory=list)
+
+
+class CausalRankingResult(BaseModel):
+    session_id: str
+    candidates: list[CausalOriginCandidate] = Field(default_factory=list)
 
 
 # ── Session models (Phase 4A) ─────────────────────────────────────────────────

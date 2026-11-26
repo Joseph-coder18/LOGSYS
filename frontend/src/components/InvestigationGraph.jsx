@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Maximize, Minus, Plus, RotateCcw } from 'lucide-react'
+import { IconMaximize as Maximize, IconMinus as Minus, IconPlus as Plus, IconRotate as RotateCcw } from '@tabler/icons-react'
 import ForceGraph from 'react-force-graph-2d'
 import IncidentImpact from './IncidentImpact'
 import { Badge, Card } from '@/components/ui/surfaces'

@@ -1,4 +1,11 @@
-import { ArrowUpRight, Database, ListChecks, MessageSquare, Route, ShieldCheck } from 'lucide-react'
+import {
+  IconArrowUpRight as ArrowUpRight,
+  IconDatabase as Database,
+  IconListCheck as ListChecks,
+  IconMessage as MessageSquare,
+  IconRoute as Route,
+  IconShieldCheck as ShieldCheck,
+} from '@tabler/icons-react'
 import { Badge, Card } from '@/components/ui/surfaces'
 import { Button } from '@/components/ui/button'
 
@@ -83,7 +90,7 @@ function TraceStep({ step }) {
       {(step.scope?.service || step.scope?.start || step.scope?.end) && <p className="mt-1 break-words text-xs text-muted-foreground">Scope · {step.scope.service || 'All services'} · {step.scope.start || 'Unbounded'} → {step.scope.end || 'Unbounded'} UTC</p>}
       {metrics.length ? (
         <>
-          <dl className="trace-metrics mt-2">
+          <dl className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
             {metrics.map(({ key, label, value }) => (
               <div key={key} className="min-w-0 rounded-md border border-border bg-background/55 px-2.5 py-2">
                 <dt className="text-xs leading-snug text-muted-foreground">{label}</dt>
@@ -102,14 +109,14 @@ function TraceStep({ step }) {
 }
 
 export default function InvestigationTrace({ trace, answerMode, sample, stale, hasEvidence, onNavigate }) {
-  if (!trace.length) return <p className="panel-empty">Verify a root cause or ask a question to see the investigation steps.</p>
+  if (!trace?.length) return <p className="panel-empty">Verify a root cause or ask a question to see the investigation steps.</p>
 
   const grouped = groupStages(trace)
   const reply = trace.find(step => step.agent === 'Grounded chat')
   const status = reply ? replyStatus(reply, answerMode) : !sample && grouped.every(group => group.agent === 'Verification') ? verificationOnly : null
   return (
-    <section aria-label="Investigation trace">
-      <Card className="side-panel mb-3 flex flex-wrap items-center justify-between gap-3">
+    <section aria-label="Investigation trace" className="space-y-3">
+      <Card className="flex flex-wrap items-center justify-between gap-3 p-3.5">
         <div>
           <h2 className="flex items-center gap-2 text-sm font-semibold"><ListChecks size={16} className="text-primary" aria-hidden="true" /> Investigation trace</h2>
           <div className="mt-2 flex flex-wrap gap-1.5">
@@ -118,21 +125,25 @@ export default function InvestigationTrace({ trace, answerMode, sample, stale, h
             {stale && <Badge tone="warning">Previous evidence</Badge>}
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {hasEvidence && <Button size="sm" variant="outline" onClick={() => onNavigate('evidence')}>View evidence <ArrowUpRight aria-hidden="true" /></Button>}
-          {reply && <Button size="sm" variant="outline" onClick={() => onNavigate('chat')}>Open chat <ArrowUpRight aria-hidden="true" /></Button>}
-        </div>
+        {onNavigate && (
+          <div className="flex flex-wrap gap-2">
+            {hasEvidence && <Button size="sm" variant="outline" onClick={() => onNavigate('evidence')}>View evidence <ArrowUpRight size={14} aria-hidden="true" /></Button>}
+            {reply && <Button size="sm" variant="outline" onClick={() => onNavigate('chat')}>Open chat <ArrowUpRight size={14} aria-hidden="true" /></Button>}
+          </div>
+        )}
       </Card>
 
-      <ol className="trace-stages">
+      <ol className="space-y-3">
         {grouped.map(({ agent, steps }, index) => {
           const { icon: Icon, color } = stages[agent] || defaultStage
           return (
-            <li className="trace-stage" key={`${agent}/${index}`}>
-              <div className={`trace-stage-icon ${color}`}><Icon size={15} aria-hidden="true" /></div>
-              <Card className={`side-panel ${agent === 'Grounded chat' && status?.tone === 'warning' ? 'border-warning/40' : ''}`}>
-                <h3 className={`mb-2 text-xs font-semibold [overflow-wrap:anywhere] ${color}`}>{agent}</h3>
-                <ol className="trace-steps">
+            <li key={`${agent}/${index}`}>
+              <Card className={`p-3.5 ${agent === 'Grounded chat' && status?.tone === 'warning' ? 'border-warning/40' : ''}`}>
+                <h3 className={`mb-2.5 flex items-center gap-2 text-xs font-semibold [overflow-wrap:anywhere] ${color}`}>
+                  <Icon size={15} aria-hidden="true" />
+                  <span>{agent}</span>
+                </h3>
+                <ol className="space-y-3 border-l border-border pl-3">
                   {steps.map((step, stepIndex) => <TraceStep step={step} key={stepIndex} />)}
                 </ol>
               </Card>

@@ -32,6 +32,28 @@ export const sampleResult = {
     { agent: 'Retrieval', action: 'Collect relevant observations', result: 'Selected the database metric and two log entries from the incident window.' },
     { agent: 'RCA', action: 'Connect the incident events', result: 'Pool saturation preceded the authentication timeout and gateway error.' },
   ],
+  hypotheses: [
+    {
+      label: 'Connection pool limit reduction',
+      service: 'user-db',
+      score: 4,
+      checks: [
+        { criterion: 'Recorded limit reduction', outcome: 'supports', detail: 'Pool limit reduced from 100 to 20 at 02:29:15 UTC.' },
+        { criterion: 'Pre-change baseline', outcome: 'supports', detail: 'Active connections were 15/100 with 17.2 ms latency before the change.' },
+        { criterion: 'Pool saturation and latency', outcome: 'supports', detail: 'Active connections reached 20/20 as latency surged to 30,045 ms.' },
+        { criterion: 'Downstream timeout', outcome: 'supports', detail: 'auth-service reported DatabaseTimeout after saturation.' },
+      ],
+    },
+    {
+      label: 'CPU pressure',
+      service: 'user-db',
+      score: 0,
+      checks: [
+        { criterion: 'Pre-spike CPU baseline', outcome: 'supports', detail: 'CPU was 42.8% before the incident.' },
+        { criterion: 'Elevated CPU', outcome: 'missing', detail: 'Peak CPU reached 72.4%, below the 80% threshold.' },
+      ],
+    },
+  ],
 }
 
 export const sampleGraph = {

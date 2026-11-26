@@ -1,4 +1,5 @@
 """Compare pool-limit and CPU hypotheses against session evidence."""
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -8,6 +9,150 @@ from services.observations import evidence_revision, load_verification_observati
 
 WINDOW = timedelta(minutes=5)
 CPU_THRESHOLD = 80
+MEMORY_THRESHOLD = 85
+QUEUE_DEPTH_THRESHOLD = 100
+ERROR_RATE_THRESHOLD = 0.05
+
+
+@dataclass(frozen=True)
+class MetricPlaybook:
+    metric_key: str
+    threshold: float
+    hypothesis_label: str
+    root_cause_prefix: str
+    baseline_criterion: str
+    baseline_found: str
+    baseline_missing: str
+    breach_criterion: str
+    breach_found: str
+    onset_criterion: str
+    onset_found: str
+    onset_missing: str
+    onset_contradict: str
+    downstream_criterion: str
+    downstream_found: str
+    downstream_missing: str
+    spike_why: str
+    baseline_why: str
+    unsupported_summary: str
+    next_check_supported: str
+    next_check_baseline: str
+    next_check_downstream: str
+    recommendation_mitigation: str
+    recommendation_prevention: str
+    unit_suffix: str = "%"
+    check_same_time_saturation: bool = False
+
+
+_PLAYBOOKS: tuple[MetricPlaybook, ...] = (
+    MetricPlaybook(
+        metric_key="cpu_percent",
+        threshold=CPU_THRESHOLD,
+        hypothesis_label="CPU pressure",
+        root_cause_prefix="CPU pressure",
+        baseline_criterion="Pre-spike CPU baseline",
+        baseline_found="CPU was below the rule threshold before the spike.",
+        baseline_missing="A recent lower CPU sample is missing.",
+        breach_criterion="Elevated CPU",
+        breach_found=f"CPU reached at least {CPU_THRESHOLD}%.",
+        onset_criterion="CPU onset precedes impact",
+        onset_found="CPU pressure was recorded before the caller error.",
+        onset_missing="A subsequent caller error is missing.",
+        onset_contradict="Pool saturation or a caller error was already recorded before the observed CPU spike.",
+        downstream_criterion="Downstream error",
+        downstream_found="A declared caller subsequently reported an error.",
+        downstream_missing="No error from a declared caller followed this CPU spike in the check window.",
+        spike_why="Records the first elevated CPU measurement in this episode.",
+        baseline_why="Shows CPU usage before the spike.",
+        unsupported_summary="The recorded CPU spike does not meet all timing and dependency checks.",
+        next_check_supported="Check CPU usage, request latency, and caller errors after addressing the pressure.",
+        next_check_baseline="Check CPU samples before the first error or saturation to establish when CPU pressure started.",
+        next_check_downstream="Check the dependency manifest and look for a caller error after the CPU spike.",
+        recommendation_mitigation="Mitigation · Inspect hot CPU threads, recent releases, or autoscaling limits on {service}.",
+        recommendation_prevention="Prevention · Alert on sustained CPU utilization above 80% before caller timeouts occur.",
+    ),
+    MetricPlaybook(
+        metric_key="memory_percent",
+        threshold=MEMORY_THRESHOLD,
+        hypothesis_label="Memory pressure",
+        root_cause_prefix="Memory pressure",
+        baseline_criterion="Pre-spike memory baseline",
+        baseline_found="Memory usage was below the rule threshold before the spike.",
+        baseline_missing="A recent lower memory sample is missing.",
+        breach_criterion="Elevated memory",
+        breach_found=f"Memory reached at least {MEMORY_THRESHOLD}%.",
+        onset_criterion="Memory onset precedes impact",
+        onset_found="Memory pressure was recorded before the caller error.",
+        onset_missing="A subsequent caller error is missing.",
+        onset_contradict="Pool saturation or a caller error was already recorded before the observed memory spike.",
+        downstream_criterion="Downstream error",
+        downstream_found="A declared caller subsequently reported an error.",
+        downstream_missing="No error from a declared caller followed this memory spike in the check window.",
+        spike_why="Records the first elevated memory measurement in this episode.",
+        baseline_why="Shows memory usage before the spike.",
+        unsupported_summary="The recorded memory spike does not meet all timing and dependency checks.",
+        next_check_supported="Check memory utilization, GC pauses/OOM kills, and caller errors after mitigation.",
+        next_check_baseline="Check memory samples before the first error or saturation to establish when memory pressure started.",
+        next_check_downstream="Check the dependency manifest and look for a caller error or OOM event after the memory spike.",
+        recommendation_mitigation="Mitigation · Inspect heap growth, OOM kills, or memory limits on {service} and restart/scale affected instances.",
+        recommendation_prevention="Prevention · Alert on memory utilization trending above 85% and track allocation rate.",
+    ),
+    MetricPlaybook(
+        metric_key="queue_depth",
+        threshold=QUEUE_DEPTH_THRESHOLD,
+        hypothesis_label="Queue backlog saturation",
+        root_cause_prefix="Queue backlog saturation",
+        baseline_criterion="Pre-spike queue baseline",
+        baseline_found="Queue depth was below the saturation threshold before the spike.",
+        baseline_missing="A recent lower queue depth sample is missing.",
+        breach_criterion="Elevated queue depth",
+        breach_found=f"Queue depth reached at least {QUEUE_DEPTH_THRESHOLD}.",
+        onset_criterion="Queue buildup precedes impact",
+        onset_found="Queue backlog was recorded before the caller error.",
+        onset_missing="A subsequent caller error is missing.",
+        onset_contradict="Pool saturation or a caller error was already recorded before the observed queue buildup.",
+        downstream_criterion="Downstream error",
+        downstream_found="A declared caller subsequently reported an error.",
+        downstream_missing="No error from a declared caller followed this queue backlog in the check window.",
+        spike_why="Records the first saturated queue depth measurement in this episode.",
+        baseline_why="Shows normal queue depth before the backlog.",
+        unsupported_summary="The recorded queue backlog does not meet all timing and dependency checks.",
+        next_check_supported="Check queue depth drain rate, consumer lag, and caller errors after mitigation.",
+        next_check_baseline="Check queue depth samples before the first error to establish when the backlog started.",
+        next_check_downstream="Check the dependency manifest and look for a caller timeout or error after the queue buildup.",
+        recommendation_mitigation="Mitigation · Scale workers or clear stalled consumers draining the queue on {service}.",
+        recommendation_prevention="Prevention · Alert on queue depth growth rate and consumer lag.",
+        unit_suffix="",
+    ),
+    MetricPlaybook(
+        metric_key="error_rate",
+        threshold=ERROR_RATE_THRESHOLD,
+        hypothesis_label="Error rate spike",
+        root_cause_prefix="Error rate spike",
+        baseline_criterion="Pre-spike error-rate baseline",
+        baseline_found="Error rate was below the rule threshold before the spike.",
+        baseline_missing="A recent lower error-rate sample is missing.",
+        breach_criterion="Elevated error rate",
+        breach_found=f"Error rate reached at least {ERROR_RATE_THRESHOLD}.",
+        onset_criterion="Error spike precedes downstream impact",
+        onset_found="The service error-rate spike was recorded before the caller error.",
+        onset_missing="A subsequent caller error is missing.",
+        onset_contradict="An upstream pool change, saturation, or caller error was already recorded before this error-rate spike.",
+        downstream_criterion="Downstream error",
+        downstream_found="A declared caller subsequently reported an error.",
+        downstream_missing="No error from a declared caller followed this error-rate spike in the check window.",
+        spike_why="Records the first elevated error-rate measurement in this episode.",
+        baseline_why="Shows error rate before the spike.",
+        unsupported_summary="The recorded error-rate spike does not meet all timing and dependency checks.",
+        next_check_supported="Check service 5xx error rates and caller errors after mitigation.",
+        next_check_baseline="Check error-rate samples before the first caller error to establish when failures began.",
+        next_check_downstream="Check the dependency manifest and look for a caller 5xx/timeout after the error-rate spike.",
+        recommendation_mitigation="Mitigation · Inspect failing endpoints, recent changes, and 5xx logs on {service}.",
+        recommendation_prevention="Prevention · Alert on elevated 5xx error rate and correlate with deployment markers.",
+        unit_suffix="",
+        check_same_time_saturation=True,
+    ),
+)
 
 
 def _within(events: list[Observation], anchor: Observation) -> list[Observation]:
@@ -180,16 +325,19 @@ def _check_reduction(
     )
 
 
-def _check_cpu(
+def _check_metric_episode(
+    playbook: MetricPlaybook,
     spike: Observation,
     metrics: list[Observation],
     caller_errors: list[Observation],
+    pool_changes: list[Observation] | None = None,
 ) -> VerifiedRCA:
     start = datetime.fromisoformat(spike.timestamp)
     window_start = start - WINDOW
+    key = playbook.metric_key
     baseline = next((event for event in reversed(metrics)
                      if window_start <= datetime.fromisoformat(event.timestamp) < start
-                     and 0 <= event.metric_values.get("cpu_percent", -1) < CPU_THRESHOLD), None)
+                     and 0 <= event.metric_values.get(key, -1) < playbook.threshold), None)
     error = next(iter(_within(caller_errors, spike)), None)
     preceding_saturation = [
         event for event in metrics
@@ -197,83 +345,110 @@ def _check_cpu(
         <= event.metric_values.get("db_connections_active", 0)
         and event.metric_values.get("db_latency_ms", 0) >= 100
     ]
-    earlier_signal = next((event for event in preceding_saturation + caller_errors
-                           if window_start <= datetime.fromisoformat(event.timestamp) < start), None)
+    if playbook.check_same_time_saturation:
+        earlier_signal = next((event for event in preceding_saturation + (pool_changes or [])
+                               if window_start <= datetime.fromisoformat(event.timestamp) <= start), None)
+        if not earlier_signal:
+            earlier_signal = next((event for event in caller_errors
+                                   if window_start <= datetime.fromisoformat(event.timestamp) < start), None)
+    else:
+        earlier_signal = next((event for event in preceding_saturation + caller_errors
+                               if window_start <= datetime.fromisoformat(event.timestamp) < start), None)
 
-    timing = _check("CPU onset precedes impact", error,
-                    "CPU pressure was recorded before the caller error.",
-                    "A subsequent caller error is missing.")
+    timing = _check(playbook.onset_criterion, error, playbook.onset_found, playbook.onset_missing)
     if earlier_signal:
         timing = HypothesisCheck(
             criterion=timing.criterion, outcome="contradicts", observation_id=earlier_signal.id,
-            detail="Pool saturation or a caller error was already recorded before the observed CPU spike.",
+            detail=playbook.onset_contradict,
         )
     checks = [
-        _check("Pre-spike CPU baseline", baseline, "CPU was below the rule threshold before the spike.",
-               "A recent lower CPU sample is missing."),
-        _check("Elevated CPU", spike, f"CPU reached at least {CPU_THRESHOLD}%.", ""),
+        _check(playbook.baseline_criterion, baseline, playbook.baseline_found, playbook.baseline_missing),
+        _check(playbook.breach_criterion, spike, playbook.breach_found, ""),
         timing,
-        _check("Downstream error", error, "A declared caller subsequently reported an error.",
-               "No error from a declared caller followed this CPU spike in the check window."),
+        _check(playbook.downstream_criterion, error, playbook.downstream_found, playbook.downstream_missing),
     ]
-    hypothesis = _hypothesis("CPU pressure", spike.service, checks)
-    evidence = [_evidence(spike, "Records the first elevated CPU measurement in this episode.")]
+    hypothesis = _hypothesis(playbook.hypothesis_label, spike.service, checks)
+    evidence = [_evidence(spike, playbook.spike_why)]
     if baseline:
-        evidence.insert(0, _evidence(baseline, "Shows CPU usage before the spike."))
+        evidence.insert(0, _evidence(baseline, playbook.baseline_why))
     if error:
         evidence.append(_evidence(error, "Records an error after the spike on a declared caller."))
     supported = all(check.outcome == "supports" for check in checks)
     modalities = {item.type for item in evidence}
     tier, conf_score = _calc_confidence(hypothesis, supported, modalities)
     if supported:
-        next_check = NextCheck(instruction="Check CPU usage, request latency, and caller errors after addressing the pressure.", service=spike.service)
+        next_check = NextCheck(instruction=playbook.next_check_supported, service=spike.service)
     elif earlier_signal or not baseline:
         next_check = NextCheck(
-            instruction="Check CPU samples before the first error or saturation to establish when CPU pressure started.",
+            instruction=playbook.next_check_baseline,
             service=spike.service, start=window_start.isoformat(), end=spike.timestamp,
         )
     else:
         next_check = NextCheck(
-            instruction="Check the dependency manifest and look for a caller error after the CPU spike.",
+            instruction=playbook.next_check_downstream,
             service=spike.service, start=spike.timestamp, end=(start + WINDOW).isoformat(),
         )
+    val = spike.metric_values[key]
+    val_str = f"{val:g}{playbook.unit_suffix}"
     return VerifiedRCA(
         next_check=next_check,
         decision="supported" if supported else "insufficient_evidence",
-        root_cause=f"CPU pressure on {spike.service}" if supported else "Cause unresolved",
+        root_cause=f"{playbook.root_cause_prefix} on {spike.service}" if supported else "Cause unresolved",
         confidence=tier, confidence_score=conf_score,
-        summary=(f"CPU reached {spike.metric_values['cpu_percent']:g}% before an error on {error.service}."
-                 if supported else "The recorded CPU spike does not meet all timing and dependency checks."),
+        summary=(f"{playbook.root_cause_prefix} reached {val_str} before an error on {error.service}."
+                 if supported else playbook.unsupported_summary),
         suspected_origin=spike.service if supported else None,
         affected_services=[spike.service, error.service] if supported else [],
+        recommendations=[
+            playbook.recommendation_mitigation.format(service=spike.service),
+            playbook.recommendation_prevention,
+        ] if supported else [],
         evidence=evidence, hypotheses=[hypothesis],
     )
 
 
-def _cpu_candidates(
+def _metric_candidates(
     events: list[Observation],
     callers: dict[str, list[str]],
 ) -> list[VerifiedRCA]:
-    series: dict[str, list[Observation]] = {}
     errors: dict[str, list[Observation]] = {}
+    pool_changes_by_service: dict[str, list[Observation]] = {}
     for event in events:
-        if event.modality == "metrics" and "cpu_percent" in event.metric_values:
-            series.setdefault(event.service, []).append(event)
-        elif event.modality == "log":
+        if event.modality == "log":
             errors.setdefault(event.service, []).append(event)
+        elif event.change_type == "config_change" and event.pool_limit_change and event.pool_limit_change.after < event.pool_limit_change.before:
+            pool_changes_by_service.setdefault(event.service, []).append(event)
 
     candidates = []
-    for service, metrics in series.items():
-        caller_errors = sorted(
-            (event for caller in callers.get(service, ()) for event in errors.get(caller, ())),
-            key=lambda event: event.timestamp,
-        )
-        previous_high = False
-        for sample in metrics:
-            high = sample.metric_values["cpu_percent"] >= CPU_THRESHOLD
-            if high and not previous_high:
-                candidates.append(_check_cpu(sample, metrics, caller_errors))
-            previous_high = high
+    for playbook in _PLAYBOOKS:
+        series: dict[str, list[Observation]] = {}
+        for event in events:
+            if event.modality == "metrics" and playbook.metric_key in event.metric_values:
+                series.setdefault(event.service, []).append(event)
+
+        for service, metrics in series.items():
+            # When a pool-limit reduction is recorded on this service, elevated error_rate
+            # is a downstream symptom of saturation rather than an independent hypothesis.
+            if playbook.metric_key == "error_rate" and pool_changes_by_service.get(service):
+                continue
+            caller_errors = sorted(
+                (event for caller in callers.get(service, ()) for event in errors.get(caller, ())),
+                key=lambda event: event.timestamp,
+            )
+            previous_high = False
+            for sample in metrics:
+                high = sample.metric_values[playbook.metric_key] >= playbook.threshold
+                if high and not previous_high:
+                    candidates.append(
+                        _check_metric_episode(
+                            playbook,
+                            sample,
+                            metrics,
+                            caller_errors,
+                            pool_changes=pool_changes_by_service.get(service, ()),
+                        )
+                    )
+                previous_high = high
     return candidates
 
 
@@ -291,7 +466,7 @@ def verify_incident(session_dir: Path, *, service: str | None = None, start: str
         if event.change_type == "config_change" and limits and limits.after < limits.before:
             candidates.append(_check_reduction(event, events, callers))
 
-    candidates.extend(_cpu_candidates(events, callers))
+    candidates.extend(_metric_candidates(events, callers))
     if service:
         candidates = [candidate for candidate in candidates if candidate.hypotheses[0].service.lower() == service.lower()]
     candidates.sort(key=lambda candidate: candidate.hypotheses[0].score, reverse=True)
@@ -305,15 +480,36 @@ def verify_incident(session_dir: Path, *, service: str | None = None, start: str
             confidence="medium", confidence_score=0.50,
             summary="Multiple hypotheses meet the evidence checks. Compare the timeline and source records to distinguish the explanations.",
             evidence=list(by_id.values()),
-            next_check=NextCheck(instruction="Compare when CPU pressure and connection saturation began against the first caller error. Open the cited samples to check which signal started first."),
+            next_check=NextCheck(instruction="Compare when competing resource pressures or saturation began against the first caller error. Open the cited samples to check which signal started first."),
         )
     else:
-        result = candidates[0] if candidates else VerifiedRCA(
-            decision="insufficient_evidence", root_cause="Cause unresolved",
-            confidence="low", confidence_score=0.20,
-            summary="The available observations do not establish a supported pool-limit or CPU diagnosis.",
-            next_check=NextCheck(instruction="Upload dated service metrics and caller errors with the dependency manifest. Include configuration changes when investigating a change to the pool limit."),
-        )
+        if candidates:
+            result = candidates[0]
+        else:
+            from services.causal_ranker import rank_causal_origins
+            deps = load_dependencies(session_dir)
+            ranked = rank_causal_origins(session_dir, events=events, dependencies=deps)
+            top = ranked[0] if ranked else None
+            hint_service = top.service if top else None
+            hint_note = (
+                f" Unsupervised ranker suggests inspecting {top.service} first (score={top.score:.2f})."
+                if top else ""
+            )
+            result = VerifiedRCA(
+                decision="insufficient_evidence", root_cause="Cause unresolved",
+                confidence="low", confidence_score=0.20,
+                summary="The available observations do not establish a supported pool-limit, CPU, memory, queue, or error-rate diagnosis.",
+                next_check=NextCheck(
+                    instruction=f"Upload dated service metrics and caller errors with the dependency manifest. Include configuration changes when investigating a change to the pool limit.{hint_note}",
+                    service=hint_service,
+                ),
+                agent_trace=[{
+                    "agent": "Causal ranker",
+                    "action": "Unsupervised origin ranking",
+                    "status": "hint" if top else "none",
+                    "result": f"Top candidate: {top.service} (score={top.score:.2f})." if top else "No anomalous services found.",
+                }] if top else [],
+            )
     result.evidence_revision = revision
     result.evidence.sort(key=lambda item: item.timestamp or "")
     result.hypotheses = [hypothesis for candidate in candidates for hypothesis in candidate.hypotheses]

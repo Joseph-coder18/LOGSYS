@@ -267,6 +267,19 @@ async def answer_incident(
     generated = await run_in_threadpool(
         _generate_claims, query, diagnosis, observations, previous_question, {event.id for event in prior_sources}, graph_links, generation_diagnostics,
     ) if model_attempted else None
+    audit_score: float | None = None
+    if generated:
+        from services.claim_auditor import audit_claims
+        obs_map = {event.id: event for event in observations}
+        known_svcs = {event.service for event in observations if event.service}
+        audited, audit_score = audit_claims(generated, obs_map, known_svcs)
+        generation_diagnostics["audit_score"] = audit_score
+        if audit_score == 0.0:
+            logger.warning("All generated claims failed factual audit; falling back to local reply.")
+            generation_diagnostics["status"] = "audit_rejected"
+            generated = None
+        else:
+            generated = audited
     topic = _default_topic(query)
     claims = lookup_claims or generated or _claims(session_dir, diagnosis, topic)
     if not lookup and generated is None and diagnosis.next_check and topic == "actions" and diagnosis.decision != "supported":
@@ -331,7 +344,10 @@ async def answer_incident(
     elif mode == "generated" and claims:
         cited_ratio = sum(1 for c in claims if c.citations) / len(claims)
         diag_conf = diagnosis.confidence_score or (0.90 if diagnosis.decision == "supported" else 0.40)
-        ans_confidence_score = round(min(0.96, (0.70 * cited_ratio) + (0.25 * diag_conf)), 2)
+        base_conf = min(0.96, (0.70 * cited_ratio) + (0.25 * diag_conf))
+        if audit_score is not None and audit_score < 1.0:
+            base_conf *= 0.5 + 0.5 * audit_score
+        ans_confidence_score = round(base_conf, 2)
         ans_confidence = "high" if ans_confidence_score >= 0.80 else "medium" if ans_confidence_score >= 0.50 else "low"
     else:
         # Local fallback / ungrounded
@@ -346,6 +362,7 @@ async def answer_incident(
         **diagnosis_payload,
         confidence=ans_confidence,
         confidence_score=ans_confidence_score,
+        audit_score=audit_score,
         answer="\n\n".join(claim.text for claim in claims),
         claims=claims,
         answer_mode=mode,

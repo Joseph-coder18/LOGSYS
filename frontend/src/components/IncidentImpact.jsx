@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Activity, ArrowUpRight, ChevronDown, Database, Network, TriangleAlert } from 'lucide-react'
+import { IconActivity as Activity, IconArrowUpRight as ArrowUpRight, IconChevronDown as ChevronDown, IconDatabase as Database, IconNetwork as Network, IconAlertTriangle as TriangleAlert } from '@tabler/icons-react'
 import { Alert, Badge, Card } from '@/components/ui/surfaces'
 import { Button } from '@/components/ui/button'
 import { sessionImpact } from '@/services/api'

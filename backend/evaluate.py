@@ -447,6 +447,50 @@ async def _evaluate(live: bool, meter: ProviderCalls) -> dict:
         except Exception:
             return ""
 
+    def _evaluate_audit_and_ranking() -> dict:
+        from models import ApprovedClaim, Observation, ObservationCitation
+        from services.causal_ranker import rank_causal_origins
+        from services.claim_auditor import audit_claims
+
+        sample_obs = Observation(
+            id="obs-1", modality="metrics", service="user-db",
+            timestamp="2024-01-15T02:31:00+00:00", source_file="demo_metrics.json",
+            source_position=11, summary="db_latency_ms=30045", excerpt="db_latency_ms=30045",
+            metric_values={"db_latency_ms": 30045},
+        )
+        cit = [ObservationCitation(observation_id="obs-1", label="demo_metrics.json · record 11")]
+        good_claims, good_score = audit_claims(
+            [ApprovedClaim(text="user-db latency reached 30,045 ms at 02:31:00 UTC.", citations=cit)],
+            {"obs-1": sample_obs}, {"user-db"},
+        )
+        bad_claims, bad_score = audit_claims(
+            [ApprovedClaim(text="user-db latency reached 30,002 ms at 02:31:00 UTC.", citations=cit)],
+            {"obs-1": sample_obs}, {"user-db"},
+        )
+        unseen_events = [
+            Observation(id="u1", modality="log", service="dns-resolver", timestamp="2024-01-15T02:30:00+00:00", source_file="a.log", source_position=1, summary="DNS lookup error", excerpt="DNS lookup error"),
+            Observation(id="u2", modality="log", service="auth-service", timestamp="2024-01-15T02:30:08+00:00", source_file="a.log", source_position=2, summary="Upstream timeout", excerpt="Upstream timeout"),
+            Observation(id="u3", modality="log", service="api-gateway", timestamp="2024-01-15T02:30:12+00:00", source_file="a.log", source_position=3, summary="504 Gateway Timeout", excerpt="504 Gateway Timeout"),
+        ]
+        unseen_deps = [
+            {"caller": "api-gateway", "callee": "auth-service"},
+            {"caller": "auth-service", "callee": "dns-resolver"},
+        ]
+        ranked = rank_causal_origins(config.DEMO_DIR, events=unseen_events, dependencies=unseen_deps)
+        return {
+            "claim_auditor": {
+                "exact_match_score": good_score,
+                "perturbed_hallucination_score": bad_score,
+                "hallucination_flagged": bad_claims[0].audit_status == "flagged",
+            },
+            "unsupervised_causal_ranker": {
+                "expected_origin": "dns-resolver",
+                "predicted_origin": ranked[0].service if ranked else None,
+                "top1_match": bool(ranked and ranked[0].service == "dns-resolver"),
+                "top_score": ranked[0].score if ranked else 0.0,
+            },
+        }
+
     return {
         "run": {"at": datetime.now(timezone.utc).isoformat(), "python": platform.python_version(),
                 "git_commit": _git_output(["rev-parse", "HEAD"]),
@@ -459,6 +503,7 @@ async def _evaluate(live: bool, meter: ProviderCalls) -> dict:
         "provider_gap_seconds": meter.gap_seconds,
         "retrieval": retrieval, "answers": answers, "questions": retrieval_cases,
         "verifier": verifier, "synthesis": synthesis, "vision": vision, "legacy_comparison": legacy,
+        "audit_and_ranking": _evaluate_audit_and_ranking(),
     }
 
 
