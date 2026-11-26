@@ -134,13 +134,15 @@ def create_session(name: str | None = None) -> dict:
     """
     session_id = str(uuid.uuid4())
     now        = _now_iso()
+    clean_name = (name or "").strip()
     meta = {
-        "id":         session_id,
-        "name":       name or f"Session {now[:10]}",
-        "created_at": now,
-        "files":      [],
-        "node_count": 0,
-        "edge_count": 0,
+        "id":           session_id,
+        "name":         clean_name or "New Incident",
+        "custom_named": bool(clean_name),
+        "created_at":   now,
+        "files":        [],
+        "node_count":   0,
+        "edge_count":   0,
     }
     _save_meta(meta)
     # Initialise an empty graph on disk
@@ -155,6 +157,41 @@ def create_session(name: str | None = None) -> dict:
 def get_session(session_id: str) -> dict | None:
     """Return session metadata or None if not found."""
     return _load_meta(session_id)
+
+
+@_state_locked
+def rename_session(session_id: str, new_name: str, *, manual: bool = True) -> dict | None:
+    """Rename a session and mark it custom_named when edited manually."""
+    meta = _load_meta(session_id)
+    if meta is None:
+        return None
+    cleaned = " ".join(new_name.split()).strip()[:80]
+    if not cleaned:
+        return meta
+    meta["name"] = cleaned
+    if manual:
+        meta["custom_named"] = True
+    _save_meta(meta)
+    return meta
+
+
+@_state_locked
+def auto_title_session(session_id: str, candidate: str, *, force_if_auto: bool = False) -> dict | None:
+    """Update session title automatically when the user hasn't manually named it."""
+    meta = _load_meta(session_id)
+    if meta is None or meta.get("custom_named"):
+        return meta
+    current = meta.get("name", "")
+    if not force_if_auto and current not in ("", "New Incident") and not current.startswith("Session "):
+        return meta
+    cleaned = " ".join(candidate.split()).strip()
+    if not cleaned:
+        return meta
+    if len(cleaned) > 48:
+        cleaned = cleaned[:45].rstrip() + "…"
+    meta["name"] = cleaned
+    _save_meta(meta)
+    return meta
 
 
 @_state_locked

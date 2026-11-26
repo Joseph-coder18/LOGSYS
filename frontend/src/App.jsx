@@ -1,20 +1,25 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   IconActivity,
+  IconCheck,
   IconFlask,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconMessage,
   IconMoon,
+  IconPencil,
   IconPlus,
+  IconSearch,
   IconSun,
   IconTrash,
+  IconX,
 } from '@tabler/icons-react'
 import { Button } from '@/components/ui/button'
 import { ConfirmDialog } from '@/components/ui/alert-dialog'
 import { Alert } from '@/components/ui/surfaces'
-import { checkHealth, createSession, deleteSession, listSessions } from '@/services/api'
+import { checkHealth, createSession, deleteSession, listSessions, renameSession } from '@/services/api'
 import { SAMPLE_ID, sampleIncident } from './sample-incident'
+import GradientText from '@/components/GradientText'
 import IncidentWorkspace from '@/components/IncidentWorkspace'
 
 function readInitialSession() {
@@ -22,11 +27,31 @@ function readInitialSession() {
   return params.get('session') || SAMPLE_ID
 }
 
+function groupByDate(items) {
+  const now = new Date()
+  const todayKey = now.toISOString().slice(0, 10)
+  const yesterday = new Date(now)
+  yesterday.setDate(now.getDate() - 1)
+  const yesterdayKey = yesterday.toISOString().slice(0, 10)
+
+  const groups = { Today: [], Yesterday: [], Earlier: [] }
+  for (const item of items) {
+    const day = (item.created_at || '').slice(0, 10)
+    if (day === todayKey) groups.Today.push(item)
+    else if (day === yesterdayKey) groups.Yesterday.push(item)
+    else groups.Earlier.push(item)
+  }
+  return Object.entries(groups).filter(([, list]) => list.length > 0)
+}
+
 export default function App() {
   const [status, setStatus] = useState('checking')
   const [sessions, setSessions] = useState([])
   const [selected, setSelected] = useState(readInitialSession)
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [search, setSearch] = useState('')
+  const [editingId, setEditingId] = useState(null)
+  const [editingName, setEditingName] = useState('')
   const [theme, setTheme] = useState(() => localStorage.getItem('logmind-theme') || 'dark')
   const [creating, setCreating] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -108,6 +133,18 @@ export default function App() {
     }
   }
 
+  async function saveRename(id) {
+    const trimmed = editingName.trim()
+    setEditingId(null)
+    if (!trimmed) return
+    try {
+      const updated = await renameSession(id, trimmed)
+      setSessions((prev) => prev.map((item) => (item.id === id ? { ...item, name: updated.name } : item)))
+    } catch {
+      setError('Could not rename the incident.')
+    }
+  }
+
   async function removeIncident() {
     if (!pendingDelete) return
     setDeleting(true)
@@ -125,6 +162,14 @@ export default function App() {
     }
   }
 
+  const filteredSessions = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return sessions
+    return sessions.filter((s) => (s.name || '').toLowerCase().includes(q))
+  }, [sessions, search])
+
+  const groupedSessions = useMemo(() => groupByDate(filteredSessions), [filteredSessions])
+
   const incident =
     selected === SAMPLE_ID
       ? sampleIncident
@@ -136,14 +181,20 @@ export default function App() {
       {sidebarOpen && (
         <aside
           aria-label="Incidents"
-          className="flex h-full w-[260px] shrink-0 flex-col border-r border-border bg-[var(--bg-sidebar)]"
+          className="flex h-full w-[264px] shrink-0 flex-col border-r border-border bg-[var(--bg-sidebar)]"
         >
           <div className="flex items-center justify-between px-3 py-3">
             <div className="flex items-center gap-2 font-semibold tracking-tight">
               <span className="grid size-7 place-items-center rounded-lg bg-emerald-500/15 text-emerald-400">
                 <IconActivity className="size-4" stroke={1.75} />
               </span>
-              <span className="text-sm">LogMind-X</span>
+              <GradientText
+                colors={['#34d399', '#38bdf8', '#818cf8']}
+                animationSpeed={6}
+                className="text-sm font-semibold"
+              >
+                LogMind-X
+              </GradientText>
             </div>
             <Button
               variant="ghost"
@@ -156,7 +207,7 @@ export default function App() {
             </Button>
           </div>
 
-          <div className="px-3 pb-2">
+          <div className="space-y-2 px-3 pb-2">
             <Button
               onClick={newIncident}
               disabled={!connected || creating}
@@ -165,47 +216,107 @@ export default function App() {
               <IconPlus className="size-4" stroke={1.75} />
               <span className="text-xs font-medium">{creating ? 'Creating…' : 'New incident'}</span>
             </Button>
+
+            {sessions.length > 0 && (
+              <div className="relative">
+                <IconSearch className="pointer-events-none absolute top-2 left-2.5 size-3.5 text-muted-foreground" />
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search incidents…"
+                  className="h-7 w-full rounded-lg border border-border bg-[var(--bg-canvas)] pl-7 pr-2 text-xs text-foreground placeholder:text-muted-foreground focus:border-[var(--border-strong)] focus:outline-none"
+                />
+              </div>
+            )}
           </div>
 
-          <div className="flex-1 overflow-y-auto px-2 py-2">
-            <div className="mb-1.5 px-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-              Incidents
-            </div>
-            <div className="space-y-0.5">
-              {sessions.length === 0 && (
-                <p className="px-2 py-2 text-xs text-muted-foreground">No live incidents yet.</p>
-              )}
-              {sessions.map((item) => {
-                const active = selected === item.id
-                return (
-                  <div
-                    key={item.id}
-                    className={`group flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm transition-colors ${
-                      active ? 'bg-muted font-medium text-foreground' : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
-                    }`}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => select(item.id)}
-                      className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                    >
-                      <IconMessage className="size-3.5 shrink-0 opacity-70" stroke={1.75} />
-                      <span className="truncate text-xs">{item.name}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPendingDelete(item)}
-                      aria-label={`Delete ${item.name}`}
-                      className="hidden rounded p-1 text-muted-foreground hover:text-destructive group-hover:inline-flex"
-                    >
-                      <IconTrash className="size-3.5" stroke={1.75} />
-                    </button>
+          <div className="flex-1 overflow-y-auto px-2 py-1">
+            {groupedSessions.length === 0 ? (
+              <p className="px-2 py-2 text-xs text-muted-foreground">
+                {search ? 'No matching incidents.' : 'No live incidents yet.'}
+              </p>
+            ) : (
+              groupedSessions.map(([groupLabel, items]) => (
+                <div key={groupLabel} className="mb-3">
+                  <div className="mb-1 px-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                    {groupLabel}
                   </div>
-                )
-              })}
-            </div>
+                  <div className="space-y-0.5">
+                    {items.map((item) => {
+                      const active = selected === item.id
+                      const isEditing = editingId === item.id
+                      return (
+                        <div
+                          key={item.id}
+                          className={`group flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm transition-colors ${
+                            active ? 'bg-muted font-medium text-foreground' : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+                          }`}
+                        >
+                          {isEditing ? (
+                            <form
+                              onSubmit={(e) => {
+                                e.preventDefault()
+                                saveRename(item.id)
+                              }}
+                              className="flex min-w-0 flex-1 items-center gap-1"
+                            >
+                              <input
+                                autoFocus
+                                value={editingName}
+                                onChange={(e) => setEditingName(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Escape') setEditingId(null)
+                                }}
+                                className="min-w-0 flex-1 rounded border border-border bg-[var(--bg-canvas)] px-1.5 py-0.5 text-xs text-foreground focus:outline-none"
+                              />
+                              <button type="submit" aria-label="Save name" className="p-0.5 text-emerald-400">
+                                <IconCheck className="size-3.5" />
+                              </button>
+                              <button type="button" onClick={() => setEditingId(null)} aria-label="Cancel rename" className="p-0.5 text-muted-foreground">
+                                <IconX className="size-3.5" />
+                              </button>
+                            </form>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => select(item.id)}
+                                className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                              >
+                                <IconMessage className="size-3.5 shrink-0 opacity-70" stroke={1.75} />
+                                <span className="truncate text-xs">{item.name}</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingId(item.id)
+                                  setEditingName(item.name)
+                                }}
+                                aria-label={`Rename ${item.name}`}
+                                className="hidden rounded p-1 text-muted-foreground hover:text-foreground group-hover:inline-flex"
+                              >
+                                <IconPencil className="size-3" stroke={1.75} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setPendingDelete(item)}
+                                aria-label={`Delete ${item.name}`}
+                                className="hidden rounded p-1 text-muted-foreground hover:text-destructive group-hover:inline-flex"
+                              >
+                                <IconTrash className="size-3" stroke={1.75} />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))
+            )}
 
-            <div className="mt-5 mb-1.5 px-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            <div className="mt-4 mb-1.5 px-2 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
               Demo Preview
             </div>
             <button

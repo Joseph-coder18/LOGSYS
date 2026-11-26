@@ -18,6 +18,7 @@ export const checkHealth = async () => (await client.get('/health', { timeout: 5
 export const createSession  = async (name) => (await client.post('/sessions', { name })).data
 export const listSessions   = async ()       => (await client.get('/sessions')).data
 export const getSession     = async (id)     => (await client.get(`/sessions/${id}`)).data
+export const renameSession  = async (id, name) => (await client.patch(`/sessions/${id}`, { name })).data
 export const deleteSession  = async (id)     => (await client.delete(`/sessions/${id}`)).data
 
 // ── Session — Ingest ──────────────────────────────────────────────────────────

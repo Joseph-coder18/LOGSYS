@@ -2,6 +2,7 @@ import { lazy, Suspense, useState } from 'react'
 import { Badge as ChakraBadge, Progress } from '@chakra-ui/react'
 import {
   IconArrowLeft,
+  IconChartLine,
   IconClock,
   IconFileText,
   IconGitFork,
@@ -15,8 +16,12 @@ import { Sheet, SheetContent } from '@/components/ui/sheet'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, Skeleton } from '@/components/ui/surfaces'
 import { suggestRemediation } from '@/services/api'
+import AnimatedContent from './AnimatedContent'
+import CountUp from './CountUp'
+import FadeContent from './FadeContent'
 import HypothesisList from './HypothesisList'
 import InvestigationTrace from './InvestigationTrace'
+import MetricSparklines from './MetricSparklines'
 import TelemetryTimeline from './TelemetryTimeline'
 import TimelineFilters from './TimelineFilters'
 
@@ -70,6 +75,7 @@ export default function InspectorDrawer({
           <TabsList className="mb-4 flex w-full flex-wrap gap-1 bg-[var(--bg-elevated)] p-1">
             <TabsTrigger value="source" className="gap-1 text-xs"><IconFileText className="size-3.5" stroke={1.75} />Sources</TabsTrigger>
             <TabsTrigger value="graph" className="gap-1 text-xs"><IconGitFork className="size-3.5" stroke={1.75} />Graph</TabsTrigger>
+            <TabsTrigger value="metrics" className="gap-1 text-xs"><IconChartLine className="size-3.5" stroke={1.75} />Metrics</TabsTrigger>
             <TabsTrigger value="timeline" className="gap-1 text-xs"><IconClock className="size-3.5" stroke={1.75} />Timeline</TabsTrigger>
             <TabsTrigger value="hypotheses" className="gap-1 text-xs"><IconShieldCheck className="size-3.5" stroke={1.75} />Checks</TabsTrigger>
             <TabsTrigger value="causal" className="gap-1 text-xs"><IconNetwork className="size-3.5" stroke={1.75} />Ranking</TabsTrigger>
@@ -187,6 +193,13 @@ export default function InspectorDrawer({
             </Suspense>
           </TabsContent>
 
+          {/* Metric Sparklines Tab */}
+          <TabsContent value="metrics">
+            <AnimatedContent trigger="mount" distance={16} duration={0.3}>
+              <MetricSparklines observations={timeline.observations || []} />
+            </AnimatedContent>
+          </TabsContent>
+
           {/* Timeline Tab */}
           <TabsContent value="timeline" className="space-y-3">
             <TimelineFilters
@@ -252,16 +265,17 @@ export default function InspectorDrawer({
               <p className="panel-empty">Upload telemetry to rank candidate root-cause services automatically.</p>
             ) : (
               causalCandidates.map((cand, index) => (
-                <Card key={cand.service} className="space-y-2.5 p-3.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-xs text-muted-foreground">#{index + 1}</span>
-                      <span className="text-sm font-semibold">{cand.service}</span>
+                <FadeContent key={cand.service} trigger="mount" duration={0.3} delay={index * 0.05} y={6}>
+                  <Card className="space-y-2.5 p-3.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-xs text-muted-foreground">#{index + 1}</span>
+                        <span className="text-sm font-semibold">{cand.service}</span>
+                      </div>
+                      <ChakraBadge size="sm" colorPalette={index === 0 ? 'green' : 'gray'}>
+                        Score <CountUp key={cand.score} from={0} to={Math.round(cand.score * 100)} duration={0.6} trigger="load" suffix="%" />
+                      </ChakraBadge>
                     </div>
-                    <ChakraBadge size="sm" colorPalette={index === 0 ? 'green' : 'gray'}>
-                      Score {Math.round(cand.score * 100)}%
-                    </ChakraBadge>
-                  </div>
                   <Progress.Root value={Math.round(cand.score * 100)} size="xs" colorPalette={index === 0 ? 'green' : 'blue'}>
                     <Progress.Track>
                       <Progress.Range />
@@ -289,7 +303,8 @@ export default function InspectorDrawer({
                       {remediating ? 'Simulating…' : 'Simulate counterfactual fix'}
                     </Button>
                   )}
-                </Card>
+                  </Card>
+                </FadeContent>
               ))
             )}
 

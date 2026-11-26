@@ -134,6 +134,7 @@ export function useIncidentSession(incident, connected, onSessionsChange) {
       ])
       if (ver.status === 'fulfilled') setResult(ver.value)
       if (rank.status === 'fulfilled') setCausalCandidates(rank.value.candidates || [])
+      await onSessionsChange?.()
     } catch (err) {
       setError(err?.response?.data?.detail || 'Verification failed.')
     } finally {
@@ -183,6 +184,7 @@ export function useIncidentSession(incident, connected, onSessionsChange) {
       if (reply.decision) {
         setResult((prev) => (prev ? { ...prev, ...reply } : reply))
       }
+      await onSessionsChange?.()
     } catch (err) {
       setError(err?.response?.data?.detail || 'Failed to get an answer.')
     } finally {

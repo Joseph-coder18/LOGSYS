@@ -1,5 +1,6 @@
 """Session CRUD, ingest, overview, observations, and impact routes."""
 from fastapi import APIRouter, File, HTTPException, Query, UploadFile
+from pydantic import BaseModel, Field
 
 from api.ingest_helpers import run_ingest
 from models import (
@@ -13,6 +14,10 @@ from models import (
 )
 
 router = APIRouter()
+
+
+class RenameSessionRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=80)
 
 
 @router.post("/sessions", response_model=Session, tags=["Sessions"])
@@ -35,6 +40,16 @@ async def get_session(session_id: str):
     """Get metadata for a single session."""
     from services.session_store import get_session as _get
     meta = _get(session_id)
+    if meta is None:
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found.")
+    return Session(**meta)
+
+
+@router.patch("/sessions/{session_id}", response_model=Session, tags=["Sessions"])
+async def rename_session(session_id: str, request: RenameSessionRequest):
+    """Rename a session manually."""
+    from services.session_store import rename_session as _rename
+    meta = _rename(session_id, request.name, manual=True)
     if meta is None:
         raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found.")
     return Session(**meta)

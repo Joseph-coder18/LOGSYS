@@ -214,6 +214,10 @@ async def run_ingest(files: list[UploadFile], session_id: str | None = None) -> 
     result.graph_nodes, result.graph_edges = stats["nodes"], stats["edges"]
     if session_id:
         register_session_files(session_id, result.processed_files)
+        if result.processed_files:
+            from services.session_store import auto_title_session
+            label = result.processed_files[0] if len(result.processed_files) == 1 else f"{result.processed_files[0]} +{len(result.processed_files) - 1}"
+            auto_title_session(session_id, label)
 
     if all_chunks:
         if GEMINI_API_KEY and PINECONE_API_KEY:

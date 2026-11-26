@@ -7,6 +7,7 @@ import {
   IconArrowUp as ArrowUp,
   IconCheck as Check,
   IconCopy as Copy,
+  IconDownload as Download,
   IconGitFork as GitFork,
   IconPaperclip as Paperclip,
   IconRotate as RotateCcw,
@@ -20,8 +21,16 @@ import { Button } from '@/components/ui/button'
 import { Popover } from '@/components/ui/popover'
 import { Alert } from '@/components/ui/surfaces'
 import { useIncidentSession } from '@/hooks/useIncidentSession'
+import { downloadPostmortem } from '@/lib/postmortem'
 import { samplePrompts } from '@/sample-incident'
+import BlurText from './BlurText'
+import BorderGlow from './BorderGlow'
+import ClickSpark from './ClickSpark'
+import CountUp from './CountUp'
+import FadeContent from './FadeContent'
 import InspectorDrawer from './InspectorDrawer'
+import ShinyText from './ShinyText'
+import SpotlightCard from './SpotlightCard'
 
 const verdictStyles = {
   supported: { label: 'Supported', colorPalette: 'green' },
@@ -73,85 +82,87 @@ function AssistantMessage({ content, onOpenCitation }) {
   }
 
   return (
-    <div className="group flex gap-3.5 py-2">
-      <div className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-full border border-border bg-[var(--bg-elevated)] text-emerald-400">
-        <Activity className="size-3.5" />
-      </div>
-      <div className="min-w-0 flex-1 space-y-3">
-        <div className="space-y-2.5 text-[15px] leading-7 text-[var(--fg-primary)]">
-          {claims.map((claim, idx) => (
-            <p key={idx} className="whitespace-pre-wrap break-words">
-              {claim.text}
-              {(claim.citations || []).length > 0 && (
-                <span className="ml-1.5 inline-flex flex-wrap gap-1 align-baseline">
-                  {claim.citations.map((cit) => (
-                    <button
-                      key={cit.observation_id}
-                      type="button"
-                      onClick={() => onOpenCitation(cit)}
-                      title={cit.label}
-                      className="inline-flex h-5 items-center rounded-md border border-border bg-[var(--bg-elevated)] px-1.5 font-mono text-[11px] font-medium text-sky-400 transition-colors hover:border-sky-400/50 hover:bg-sky-500/10"
-                    >
-                      [{indexById.get(cit.observation_id)}]
-                    </button>
-                  ))}
-                </span>
-              )}
-            </p>
-          ))}
+    <FadeContent trigger="mount" duration={0.35} y={8}>
+      <div className="group flex gap-3.5 py-2">
+        <div className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-full border border-border bg-[var(--bg-elevated)] text-emerald-400">
+          <Activity className="size-3.5" />
         </div>
-
-        {flaggedWarnings.length > 0 && (
-          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
-            <div className="mb-1 flex items-center gap-1.5 font-medium">
-              <ShieldAlert className="size-3.5" />
-              Claim Auditor flagged {flaggedWarnings.length} potential mismatch{flaggedWarnings.length > 1 ? 'es' : ''}:
-            </div>
-            <ul className="list-disc space-y-0.5 pl-4 text-[11px] opacity-90">
-              {flaggedWarnings.map((w, i) => <li key={i}>{w}</li>)}
-            </ul>
+        <div className="min-w-0 flex-1 space-y-3">
+          <div className="space-y-2.5 text-[15px] leading-7 text-[var(--fg-primary)]">
+            {claims.map((claim, idx) => (
+              <p key={idx} className="whitespace-pre-wrap break-words">
+                {claim.text}
+                {(claim.citations || []).length > 0 && (
+                  <span className="ml-1.5 inline-flex flex-wrap gap-1 align-baseline">
+                    {claim.citations.map((cit) => (
+                      <button
+                        key={cit.observation_id}
+                        type="button"
+                        onClick={() => onOpenCitation(cit)}
+                        title={cit.label}
+                        className="inline-flex h-5 items-center rounded-md border border-border bg-[var(--bg-elevated)] px-1.5 font-mono text-[11px] font-medium text-sky-400 transition-colors hover:border-sky-400/50 hover:bg-sky-500/10"
+                      >
+                        [{indexById.get(cit.observation_id)}]
+                      </button>
+                    ))}
+                  </span>
+                )}
+              </p>
+            ))}
           </div>
-        )}
 
-        <div className="flex flex-wrap items-center gap-2 pt-0.5 text-xs text-muted-foreground">
-          {confPct !== null && (
-            <ChakraBadge
-              size="sm"
-              variant="subtle"
-              colorPalette={confPct >= 80 ? 'green' : confPct >= 50 ? 'yellow' : 'red'}
+          {flaggedWarnings.length > 0 && (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-300">
+              <div className="mb-1 flex items-center gap-1.5 font-medium">
+                <ShieldAlert className="size-3.5" />
+                Claim Auditor flagged {flaggedWarnings.length} potential mismatch{flaggedWarnings.length > 1 ? 'es' : ''}:
+              </div>
+              <ul className="list-disc space-y-0.5 pl-4 text-[11px] opacity-90">
+                {flaggedWarnings.map((w, i) => <li key={i}>{w}</li>)}
+              </ul>
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center gap-2 pt-0.5 text-xs text-muted-foreground">
+            {confPct !== null && (
+              <ChakraBadge
+                size="sm"
+                variant="subtle"
+                colorPalette={confPct >= 80 ? 'green' : confPct >= 50 ? 'yellow' : 'red'}
+              >
+                <CountUp key={confPct} from={0} to={confPct} duration={0.6} trigger="load" suffix="% confidence" />
+              </ChakraBadge>
+            )}
+            {typeof auditScore === 'number' && (
+              <ChakraBadge
+                size="sm"
+                variant="subtle"
+                colorPalette={auditScore === 1 ? 'green' : 'yellow'}
+              >
+                {auditScore === 1 ? (
+                  <span className="inline-flex items-center gap-1"><ShieldCheck className="size-3" />Audit 100%</span>
+                ) : (
+                  <span className="inline-flex items-center gap-1"><ShieldAlert className="size-3" />Audit {Math.round(auditScore * 100)}%</span>
+                )}
+              </ChakraBadge>
+            )}
+            {content?.answer_mode && (
+              <span className="rounded-md bg-[var(--bg-elevated)] px-2 py-0.5 text-[11px]">
+                {modeLabels[content.answer_mode] || content.answer_mode}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={handleCopy}
+              className="ml-auto inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-muted-foreground opacity-75 transition hover:bg-muted hover:text-foreground group-hover:opacity-100"
             >
-              {confPct}% confidence
-            </ChakraBadge>
-          )}
-          {typeof auditScore === 'number' && (
-            <ChakraBadge
-              size="sm"
-              variant="subtle"
-              colorPalette={auditScore === 1 ? 'green' : 'yellow'}
-            >
-              {auditScore === 1 ? (
-                <span className="inline-flex items-center gap-1"><ShieldCheck className="size-3" />Audit 100%</span>
-              ) : (
-                <span className="inline-flex items-center gap-1"><ShieldAlert className="size-3" />Audit {Math.round(auditScore * 100)}%</span>
-              )}
-            </ChakraBadge>
-          )}
-          {content?.answer_mode && (
-            <span className="rounded-md bg-[var(--bg-elevated)] px-2 py-0.5 text-[11px]">
-              {modeLabels[content.answer_mode] || content.answer_mode}
-            </span>
-          )}
-          <button
-            type="button"
-            onClick={handleCopy}
-            className="ml-auto inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-muted-foreground opacity-75 transition hover:bg-muted hover:text-foreground group-hover:opacity-100"
-          >
-            {copied ? <Check className="size-3 text-emerald-400" /> : <Copy className="size-3" />}
-            {copied ? 'Copied' : 'Copy'}
-          </button>
+              {copied ? <Check className="size-3 text-emerald-400" /> : <Copy className="size-3" />}
+              {copied ? 'Copied' : 'Copy'}
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+    </FadeContent>
   )
 }
 
@@ -234,7 +245,7 @@ export default function IncidentWorkspace({
               </ChakraBadge>
               {confPct !== null && (
                 <ChakraBadge size="sm" variant="outline" colorPalette={confPct >= 80 ? 'green' : confPct >= 50 ? 'yellow' : 'red'}>
-                  {confPct}%
+                  <CountUp key={confPct} from={0} to={confPct} duration={0.6} trigger="load" suffix="%" />
                 </ChakraBadge>
               )}
             </HStack>
@@ -248,17 +259,36 @@ export default function IncidentWorkspace({
 
         <div className="flex items-center gap-1.5">
           {!session.sample && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={session.runVerification}
-              disabled={session.verifying || session.files.length === 0}
-              className="h-8 gap-1.5 text-xs"
-            >
-              {session.verifying ? <Spinner size="xs" /> : <ShieldCheck className="size-3.5 text-emerald-400" />}
-              <span className="hidden sm:inline">{session.verifying ? 'Verifying…' : 'Verify'}</span>
-            </Button>
+            <ClickSpark sparkColor="#34d399" sparkCount={6} sparkRadius={14}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={session.runVerification}
+                disabled={session.verifying || session.files.length === 0}
+                className="h-8 gap-1.5 text-xs"
+              >
+                {session.verifying ? <Spinner size="xs" /> : <ShieldCheck className="size-3.5 text-emerald-400" />}
+                <span className="hidden sm:inline">{session.verifying ? 'Verifying…' : 'Verify'}</span>
+              </Button>
+            </ClickSpark>
           )}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() =>
+              downloadPostmortem({
+                incident,
+                result: session.result,
+                causalCandidates: session.causalCandidates,
+                files: session.files,
+              })
+            }
+            title="Export Markdown Postmortem"
+            className="h-8 gap-1.5 text-xs"
+          >
+            <Download className="size-3.5" />
+            <span className="hidden md:inline">Export</span>
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -294,7 +324,14 @@ export default function IncidentWorkspace({
                 <Sparkles className="size-6" />
               </div>
               <h2 className="text-2xl font-semibold tracking-tight">
-                {session.sample ? 'Sample DB Pool Incident' : 'Investigate an Incident'}
+                <BlurText
+                  key={incident.id}
+                  text={session.sample ? 'Sample DB Pool Incident' : 'Investigate an Incident'}
+                  trigger="load"
+                  delay={80}
+                  animateBy="words"
+                  className="justify-center text-2xl font-semibold tracking-tight"
+                />
               </h2>
               <p className="mt-1.5 max-w-md text-sm text-muted-foreground">
                 {session.files.length === 0
@@ -304,28 +341,31 @@ export default function IncidentWorkspace({
 
               {/* Inline Dropzone when no files yet */}
               {!session.sample && session.files.length === 0 && (
-                <div
-                  {...getRootProps()}
-                  className={`mt-6 w-full max-w-lg cursor-pointer rounded-2xl border border-dashed p-6 transition-colors ${
-                    isDragActive
-                      ? 'border-emerald-400 bg-emerald-500/10'
-                      : 'border-border bg-[var(--bg-surface)] hover:border-[var(--border-strong)]'
-                  }`}
+                <SpotlightCard
+                  spotlightColor="rgba(16, 185, 129, 0.22)"
+                  className="mt-6 w-full max-w-lg rounded-2xl border border-dashed border-border bg-[var(--bg-surface)] p-0"
                 >
-                  <input {...getInputProps()} />
-                  <div className="flex flex-col items-center gap-2 text-xs text-muted-foreground">
-                    {session.uploading ? <Spinner size="sm" /> : <Upload className="size-5 text-foreground" />}
-                    <span className="font-medium text-foreground">
-                      {session.uploading ? 'Ingesting telemetry…' : 'Drag & drop telemetry files, or click to browse'}
-                    </span>
-                    <span>Supports .log, .txt, .json, .csv, .png, .jpg</span>
+                  <div
+                    {...getRootProps()}
+                    className={`w-full cursor-pointer rounded-2xl p-6 transition-colors ${
+                      isDragActive ? 'bg-emerald-500/10' : 'hover:bg-white/[0.02]'
+                    }`}
+                  >
+                    <input {...getInputProps()} />
+                    <div className="flex flex-col items-center gap-2 text-xs text-muted-foreground">
+                      {session.uploading ? <Spinner size="sm" /> : <Upload className="size-5 text-foreground" />}
+                      <span className="font-medium text-foreground">
+                        {session.uploading ? 'Ingesting telemetry…' : 'Drag & drop telemetry files, or click to browse'}
+                      </span>
+                      <span>Supports .log, .txt, .json, .csv, .png, .jpg</span>
+                    </div>
                   </div>
-                </div>
+                </SpotlightCard>
               )}
 
               {/* Starter Prompt Chips */}
               {(session.files.length > 0 || session.sample) && (
-                <div className="mt-7 grid w-full max-w-xl grid-cols-1 gap-2 sm:grid-cols-2">
+                <div className="mt-7 grid w-full max-w-xl grid-cols-1 gap-2.5 sm:grid-cols-2">
                   {(session.sample
                     ? samplePrompts
                     : [
@@ -335,15 +375,20 @@ export default function IncidentWorkspace({
                         { topic: 'Verification', label: 'Are there any contradicting signals?' },
                       ]
                   ).slice(0, 4).map((prompt) => (
-                    <button
+                    <SpotlightCard
                       key={prompt.label}
-                      type="button"
-                      onClick={() => session.sendQuestion(prompt.label)}
-                      className="rounded-xl border border-border bg-[var(--bg-surface)] px-3.5 py-2.5 text-left transition hover:border-[var(--border-strong)] hover:bg-[var(--bg-elevated)]"
+                      spotlightColor="rgba(56, 189, 248, 0.2)"
+                      className="rounded-xl border border-border bg-[var(--bg-surface)] p-0"
                     >
-                      <div className="text-[11px] font-medium text-muted-foreground">{prompt.topic}</div>
-                      <div className="mt-0.5 text-xs text-foreground">{prompt.label}</div>
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => session.sendQuestion(prompt.label)}
+                        className="w-full rounded-xl px-3.5 py-2.5 text-left transition"
+                      >
+                        <div className="text-[11px] font-medium text-muted-foreground">{prompt.topic}</div>
+                        <div className="mt-0.5 text-xs text-foreground">{prompt.label}</div>
+                      </button>
+                    </SpotlightCard>
                   ))}
                 </div>
               )}
@@ -374,7 +419,13 @@ export default function IncidentWorkspace({
                   <div className="grid size-7 place-items-center rounded-full border border-border bg-[var(--bg-elevated)]">
                     <Spinner size="xs" />
                   </div>
-                  <span>Verifying observations & synthesizing reply…</span>
+                  <ShinyText
+                    text="Verifying observations & synthesizing reply…"
+                    color="#71717a"
+                    shineColor="#e4e4e7"
+                    speed={1.8}
+                    className="text-sm"
+                  />
                 </div>
               )}
             </div>
@@ -405,10 +456,16 @@ export default function IncidentWorkspace({
 
       {/* Bottom Floating Pill Composer */}
       <div className="shrink-0 px-4 pb-4 pt-1">
-        <form
-          onSubmit={handleSubmit}
-          className="mx-auto w-full max-w-3xl rounded-2xl border border-border bg-[var(--bg-surface)] p-2 shadow-lg transition-colors focus-within:border-[var(--border-strong)]"
-        >
+        <div className="mx-auto w-full max-w-3xl">
+          <BorderGlow
+            borderRadius={18}
+            glowRadius={24}
+            glowIntensity={0.65}
+            backgroundColor="var(--bg-surface)"
+            colors={['#10b981', '#38bdf8', '#818cf8']}
+            fillOpacity={0.25}
+          >
+            <form onSubmit={handleSubmit} className="w-full p-2">
           <textarea
             rows={1}
             value={draft}
@@ -527,17 +584,21 @@ export default function IncidentWorkspace({
               )}
             </div>
 
-            <Button
-              type="submit"
-              size="icon"
-              disabled={!draft.trim() || session.asking}
-              aria-label="Send message"
-              className="size-8 rounded-xl bg-foreground text-background hover:opacity-90 disabled:opacity-35"
-            >
-              <ArrowUp className="size-4" />
-            </Button>
+            <ClickSpark sparkColor="#38bdf8" sparkCount={8} sparkRadius={16}>
+              <Button
+                type="submit"
+                size="icon"
+                disabled={!draft.trim() || session.asking}
+                aria-label="Send message"
+                className="size-8 rounded-xl bg-foreground text-background hover:opacity-90 disabled:opacity-35"
+              >
+                <ArrowUp className="size-4" />
+              </Button>
+            </ClickSpark>
           </div>
         </form>
+          </BorderGlow>
+        </div>
       </div>
 
       {/* Slide-over Right Inspector Drawer */}

@@ -44,7 +44,7 @@ async def latest_session_verification(session_id: str):
 @router.post("/sessions/{session_id}/verification", response_model=VerifiedRCA, tags=["Sessions"])
 async def session_verification(session_id: str, request: Request):
     from services.observations import evidence_revision
-    from services.session_store import _session_dir, get_session, save_verification
+    from services.session_store import _session_dir, auto_title_session, get_session, save_verification
     from services.verification import verify_incident
 
     if get_session(session_id) is None:
@@ -53,6 +53,8 @@ async def session_verification(session_id: str, request: Request):
     diagnosis = verify_incident(session_dir)
     if request.method == "POST" and diagnosis.evidence_revision == evidence_revision(session_dir):
         save_verification(session_id, diagnosis.model_dump())
+        if diagnosis.decision == "supported" and diagnosis.root_cause:
+            auto_title_session(session_id, diagnosis.root_cause, force_if_auto=True)
     return diagnosis
 
 
@@ -90,6 +92,8 @@ async def session_query(session_id: str, request: SessionQueryRequest):
             {"role": "assistant", "content": result.model_dump()},
             expected_generation=generation,
         )
+        from services.session_store import auto_title_session
+        auto_title_session(session_id, request.query)
         return result
     except HTTPException:
         raise
